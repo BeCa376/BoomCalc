@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>BOOMCALC — Simulador de Içamento</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link rel="stylesheet" href="project/css/style.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="mark">BOOMCALC</span>
+    <span class="sub">simulador de içamento</span>
+  </div>
+  <div class="modelSwitch" id="modelSwitch"></div>
+  <div class="globalStatus" id="globalStatus"><span class="dot" style="background:var(--muted-dim)"></span>Sem carga informada</div>
+</div>
+
+<div class="tabbar">
+  <button class="tabbtn active" data-tab="sim">Simulação</button>
+  <button class="tabbtn" data-tab="reverse">Alcance máximo</button>
+  <button class="tabbtn" data-tab="spec">Ficha técnica</button>
+</div>
+
+<div class="layout">
+  <div class="main">
+
+    <!-- TAB: SIMULAÇÃO -->
+    <div class="panel active" id="tab-sim">
+      <div class="stageHead">
+        <p class="sectionTitle" style="margin:0;">Posição da lança</p>
+        <div class="viewToggle" id="viewToggle">
+          <button class="active" data-view="2d">2D</button>
+          <button data-view="3d">3D</button>
+        </div>
+      </div>
+
+      <div class="stage" id="stage2d">
+        <svg id="craneSvg" viewBox="0 0 640 380" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+
+      <div class="stage3d" id="stage3d" style="display:none;">
+        <canvas id="crane3dCanvas"></canvas>
+      </div>
+      <div class="viewBtnRow" id="viewBtnRow" style="display:none;">
+        <button class="btnSecondary" data-camview="iso">Isométrica</button>
+        <button class="btnSecondary" data-camview="front">Frontal</button>
+        <button class="btnSecondary" data-camview="side">Lateral</button>
+        <button class="btnSecondary" data-camview="top">Topo</button>
+      </div>
+
+      <div class="controlsRow">
+        <div class="ctl">
+          <label><span>Ângulo</span> <span class="v" id="angleVal">–</span></label>
+          <input type="range" id="angleSlider" min="0" max="82" step="1">
+        </div>
+        <div class="ctl">
+          <label><span>Comprimento da lança</span> <span class="v" id="lenVal">–</span></label>
+          <input type="range" id="lenSlider" min="0" max="100" step="1">
+        </div>
+        <div class="ctl">
+          <label><span>Giro</span> <span class="v" id="slewVal">–</span></label>
+          <input type="range" id="slewSlider" min="0" max="180" step="1">
+        </div>
+      </div>
+
+      <p class="sectionTitle" style="margin-top:14px;">Cargas da operação</p>
+      <div class="loadsGrid">
+        <div class="field"><label>Peso da carga (kg)</label><input type="number" id="loadCarga" value="0" min="0"></div>
+        <div class="field"><label>Massa da lingada (kg)</label><input type="number" id="loadLingada" value="0" min="0"></div>
+        <div class="field"><label>Massa do cabo de aço (kg)</label><input type="number" id="loadCabo" value="0" min="0"></div>
+        <div class="field"><label>Massa do balancim (kg)</label><input type="number" id="loadBalancim" value="0" min="0" disabled></div>
+      </div>
+      <div class="checkRow"><input type="checkbox" id="useJib"><label for="useJib">Usar JIB</label></div>
+      <div class="checkRow"><input type="checkbox" id="useBalancim"><label for="useBalancim">Usar balancim</label></div>
+
+      <p class="footNote" id="dragHint">Arraste o ponto na ponta da lança no desenho, ou use os controles acima — ambos ficam sincronizados.</p>
+    </div>
+
+    <!-- TAB: ALCANCE MÁXIMO -->
+    <div class="panel" id="tab-reverse">
+      <p class="sectionTitle">Cálculo reverso</p>
+      <div class="reverseBox">
+        <p style="margin:0; font-size:13px; color:var(--muted); line-height:1.5;">
+          Informe o peso a içar. O sistema varre os ângulos possíveis, no comprimento de lança e
+          giro atuais, e devolve o maior raio ainda seguro.
+        </p>
+        <div class="reverseRow">
+          <div class="field"><label>Peso a içar (kg)</label><input type="number" id="reverseWeight" min="0" placeholder="ex: 8000"></div>
+          <button class="btnPrimary" id="reverseBtn">Calcular</button>
+        </div>
+
+        <div id="reverseResult" style="display:none;">
+          <div class="revResultGrid">
+            <div class="revStat"><div class="l">Raio máximo</div><div class="v" id="revRadius">–</div></div>
+            <div class="revStat"><div class="l">Ângulo necessário</div><div class="v" id="revAngle">–</div></div>
+            <div class="revStat"><div class="l">Altura da ponta</div><div class="v" id="revHeight">–</div></div>
+            <div class="revStat"><div class="l">Capacidade no ponto</div><div class="v" id="revCap">–</div></div>
+          </div>
+          <button class="btnSecondary" id="revGoBtn" style="margin-top:14px;">Mover a lança para essa posição →</button>
+        </div>
+        <div id="reverseNone" style="display:none; color:var(--danger); font-size:13px; margin-top:14px; font-weight:500;">
+          Nenhum ângulo, no comprimento de lança atual, suporta esse peso com segurança. Reduza o comprimento da lança ou o peso.
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: FICHA TÉCNICA -->
+    <div class="panel" id="tab-spec">
+      <p class="sectionTitle">Especificações do modelo</p>
+      <div class="specGrid" id="specGrid"></div>
+      <div id="approxNote"></div>
+    </div>
+
+  </div>
+
+  <!-- SIDEBAR: leitura ao vivo -->
+  <div class="sidebar">
+    <p class="sectionTitle">Leitura</p>
+    <div class="readout">
+      <div class="kv"><span class="l">Quadrante</span><span class="r" id="quadTagOut">–</span></div>
+      <div class="kv"><span class="l">Raio de operação</span><span class="r" id="radiusOut">–</span></div>
+      <div class="kv"><span class="l">Comprimento da lança</span><span class="r" id="lenOut">–</span></div>
+      <div class="kv"><span class="l">Ângulo</span><span class="r" id="angleOut">–</span></div>
+      <div class="kv"><span class="l">Altura da ponta</span><span class="r" id="heightOut">–</span></div>
+    </div>
+    <div class="readout">
+      <div class="kv"><span class="l">Soma das cargas</span><span class="r" id="sumOut">–</span></div>
+      <div class="kv"><span class="l">Capacidade disponível</span><span class="r" id="capOut">–</span></div>
+    </div>
+
+    <p class="sectionTitle" style="margin-top:20px;">Resultado</p>
+    <div class="statusCard" id="statusBox">
+      <div class="label"><span class="dotStat" id="statusDot" style="background:var(--muted-dim)"></span><span id="statusMain">Aguardando dados</span></div>
+      <div class="sub" id="statusSub">Informe o peso da carga para calcular</div>
+      <div class="meter"><div class="meterFill" id="barFill" style="width:0%"></div></div>
+    </div>
+  </div>
+</div>
+
+<script src="project/js/app.js"></script>
+</body>
+</html>

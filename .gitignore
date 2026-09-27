@@ -1,0 +1,21 @@
+# Python e Compilados
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ambientes Virtuais
+venv/
+.venv/
+
+# Arquivos de Ambiente e Senhas (CRÍTICO)
+.env
+.env.*
+config/.env
+
+# Ficheiros Locais de Base de Dados (dumps/backups — NÃO os scripts em database/)
+*.db
+*.sqlite
+*.sqlite3
+*.sql.bak
+!database/*.sql
