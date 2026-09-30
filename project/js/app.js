@@ -35,12 +35,13 @@ const MODELS = {
   }
 };
 
-let current="TM130", angle=45, len=8, slew=0, dragging=false;
+let current="TM130", angle=45, len=8, slew=0, jibExt=1, dragging=false;
 
 const svg=document.getElementById("craneSvg");
 const angleSlider=document.getElementById("angleSlider");
 const lenSlider=document.getElementById("lenSlider");
 const slewSlider=document.getElementById("slewSlider");
+const jibSlider=document.getElementById("jibSlider");
 
 function fmt(n,d=1){ return Number(n).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
@@ -97,6 +98,7 @@ function onModelChange(){
   angle=Math.min(angle,m.maxAngle);
   len=m.minLen+(m.maxLen-m.minLen)*0.4;
   slew=0;
+  jibExt=1;
   document.getElementById("useJib").checked=false;
   document.getElementById("useJib").disabled=!m.jib;
   document.getElementById("useBalancim").disabled=!m.balancim;
@@ -119,7 +121,13 @@ function renderSpec(){
 
 function lenToPct(l){ const m=MODELS[current]; return ((l-m.minLen)/(m.maxLen-m.minLen))*100; }
 function pctToLen(p){ const m=MODELS[current]; return m.minLen+(m.maxLen-m.minLen)*(p/100); }
-function syncSliders(){ angleSlider.value=angle; lenSlider.value=lenToPct(len); slewSlider.value=slew; }
+/* JIB: comprimento atual = comprimento total do modelo x extensão (0 = guardado, 1 = estendido) */
+function jibLenCur(){
+  const m=MODELS[current];
+  const on=document.getElementById("useJib").checked && m.jib;
+  return on ? m.jibLen*jibExt : 0;
+}
+function syncSliders(){ angleSlider.value=angle; lenSlider.value=lenToPct(len); slewSlider.value=slew; jibSlider.value=Math.round(jibExt*100); }
 
 function hideReverse(){
   document.getElementById("reverseResult").style.display="none";
@@ -143,14 +151,15 @@ function quadrantFromSlew(s){ return s<=16 ? "frontal" : "lateral"; }
 function computeGeometry(){
   const m=MODELS[current];
   const rad=angle*Math.PI/180;
-  const jibOn=document.getElementById("useJib").checked && m.jib;
+  const jl=jibLenCur();
+  const jibOn=jl>0;
   let radius=m.baseOffset+len*Math.cos(rad);
   let height=m.baseHeight+len*Math.sin(rad);
   if(jibOn){
     const jRad=Math.min(rad+20*Math.PI/180, Math.PI/2);
-    radius+=m.jibLen*Math.cos(jRad); height+=m.jibLen*Math.sin(jRad);
+    radius+=jl*Math.cos(jRad); height+=jl*Math.sin(jRad);
   }
-  return {radius,height,jibOn};
+  return {radius,height,jibOn,jibLen:jl};
 }
 
 function computeCapacity(){
@@ -168,6 +177,11 @@ function update(){
   document.getElementById("angleVal").textContent=angle.toFixed(0)+"°";
   document.getElementById("lenVal").textContent=fmt(len)+" m";
   document.getElementById("slewVal").textContent=slew.toFixed(0)+"°";
+  const jibActive=document.getElementById("useJib").checked && m.jib;
+  jibSlider.disabled=!jibActive;
+  document.getElementById("jibCtl").style.display = jibActive ? "" : "none";
+  document.querySelector(".controlsRow").classList.toggle("withJib", jibActive);
+  document.getElementById("jibVal").textContent = !jibActive ? "–" : (jibExt<=0 ? "Guardado" : fmt(m.jibLen*jibExt)+" m");
 
   const {cap, quad, geo}=computeCapacity();
   const carga=Number(document.getElementById("loadCarga").value)||0;
@@ -225,7 +239,7 @@ function drawCrane(geo, quad){
   let jibTipX=tipX, jibTipY=tipY;
   if(geo.jibOn){
     const jRad=Math.min(rad+20*Math.PI/180, Math.PI/2);
-    jibTipX=tipX+m.jibLen*scale*Math.cos(jRad); jibTipY=tipY-m.jibLen*scale*Math.sin(jRad);
+    jibTipX=tipX+geo.jibLen*scale*Math.cos(jRad); jibTipY=tipY-geo.jibLen*scale*Math.sin(jRad);
   }
   const quadColor = quad==="frontal" ? "#5b9bd1" : "#f2a900";
   const lineDim="#3a434e";
@@ -290,12 +304,13 @@ function solveMaxRadiusForWeight(weight){
   const step=0.25;
   for(let a=m.minAngle; a<=m.maxAngle; a+=step){
     const radAngle=a*Math.PI/180;
-    const jibOn=document.getElementById("useJib").checked && m.jib;
+    const jl=jibLenCur();
+    const jibOn=jl>0;
     let radius=m.baseOffset+len*Math.cos(radAngle);
     let height=m.baseHeight+len*Math.sin(radAngle);
     if(jibOn){
       const jRad=Math.min(radAngle+20*Math.PI/180, Math.PI/2);
-      radius+=m.jibLen*Math.cos(jRad); height+=m.jibLen*Math.sin(jRad);
+      radius+=jl*Math.cos(jRad); height+=jl*Math.sin(jRad);
     }
     let cap = current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(len, radius, quad);
     if(cap>=weight){ if(!best || radius>best.radius){ best={angle:a, radius, height, cap}; } }
@@ -334,7 +349,8 @@ angleSlider.addEventListener("input", ()=>{ angle=Number(angleSlider.value); upd
 lenSlider.addEventListener("input", ()=>{ len=pctToLen(Number(lenSlider.value)); hideReverse(); update(); });
 slewSlider.addEventListener("input", ()=>{ slew=Number(slewSlider.value); hideReverse(); update(); });
 ["loadCarga","loadLingada","loadCabo","loadBalancim"].forEach(id=>document.getElementById(id).addEventListener("input", update));
-document.getElementById("useJib").addEventListener("change", update);
+jibSlider.addEventListener("input", ()=>{ jibExt=Number(jibSlider.value)/100; hideReverse(); update(); });
+document.getElementById("useJib").addEventListener("change", ()=>{ jibExt=1; syncSliders(); hideReverse(); update(); });
 document.getElementById("useBalancim").addEventListener("change", update);
 
 let three3d = null;
@@ -423,8 +439,6 @@ function init3D(){
   function dragBoomTo(e){
     ndcFromEvent(e);
     raycaster.setFromCamera(ndc, camera);
-    // plano vertical onde a lança vive: plano local Z=0 da torre (turret),
-    // que gira junto com o giro (slew) — assim o arraste segue o ângulo certo.
     const normal = new THREE.Vector3(0,0,1).applyQuaternion(turret.getWorldQuaternion(new THREE.Quaternion()));
     const pivotWorld = new THREE.Vector3();
     boomPivot.getWorldPosition(pivotWorld);
@@ -512,16 +526,17 @@ function resize3D(){
 function update3D(){
   if(!three3d) return;
   const m = MODELS[current];
-  const jibOn = document.getElementById("useJib").checked && m.jib;
+  const jl = jibLenCur();
+  const jibOn = jl>0;
   three3d.turret.rotation.y = -slew*Math.PI/180;
   three3d.boomPivot.rotation.z = angle*Math.PI/180;
   three3d.boom.scale.x = len;
   three3d.jibPivot.position.x = len;
-  if(jibOn && m.jibLen){
+  if(jibOn){
     three3d.jib.visible = true;
     three3d.jibPivot.rotation.z = 20*Math.PI/180;
-    three3d.jib.scale.x = m.jibLen;
-    three3d.hookAnchor.position.x = m.jibLen;
+    three3d.jib.scale.x = jl;
+    three3d.hookAnchor.position.x = jl;
   } else {
     three3d.jib.visible = false;
     three3d.jibPivot.rotation.z = 0;
