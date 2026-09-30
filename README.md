@@ -9,13 +9,14 @@ oficiais de cada modelo cadastrado.
 ```
 BoomCalc/
 ├── config/
-│   └── config.py            # configuração da app (conexão MySQL, limites RN08 etc.)
+│   └── config.py             # configuração da app (conexão MySQL, limites RN08 etc.)
+│       └── .env.exemple      # exemplo de como é experado o .env
 ├── database/
-│   ├── schema.sql           # criação das tabelas (a partir do modelo ER)
-│   └── seed.sql             # dados iniciais: TM130, MD300L, acessórios
+│   ├── schema.sql            # criação das tabelas (a partir do modelo ER)
+│   └── seed.sql              # dados iniciais: TM130, MD300L, acessórios
 ├── project/
-│   ├── __init__.py          # app factory Flask (create_app)
-│   ├── controller/          # rotas HTTP (recebem request, chamam o model, devolvem JSON)
+│   ├── __init__.py           # app factory Flask (create_app)
+│   ├── controller/           # rotas HTTP (recebem request, chamam o model, devolvem JSON)
 │   │   ├── guindastes_controller.py
 │   │   ├── simulacao_controller.py
 │   │   └── historico_controller.py
@@ -24,16 +25,17 @@ BoomCalc/
 │   │   └── regras_negocio.py
 │   ├── functions/            # utilitários genéricos (sem regra de negócio)
 │   │   └── utils.py          # interpolação, formatação, validação de campos
-│   ├── html/                  # páginas adicionais (login, cadastro...) — a definir
+│   ├── html/                 # páginas adicionais (login, cadastro...) — a definir
 │   ├── css/
 │   │   └── style.css
 │   └── js/
 │       └── app.js            # lógica do desenho SVG interativo + chamadas à API
 ├── index.html                # tela principal (simulação) servida pelo Flask
-├── app.py                     # ponto de entrada — roda o servidor
+├── app.py                    # ponto de entrada — roda o servidor
 ├── requirements.txt
 ├── .gitignore
-└── README.md
+├── README.md
+└── seed.sql                  # Script de criação e inserção de dados no banco de dados
 ```
 
 ### Por que a lógica de cálculo (RN01–RN08) está em `model` e não em `functions`?
@@ -45,16 +47,20 @@ domínio — o que significa "operação segura", "quadrante frontal x lateral"
 etc. Isso mantém os controllers finos: eles só recebem a requisição,
 chamam o model e devolvem a resposta.
 
-## Como rodar (desenvolvimento)
+## Como executar:
 
-### 1. Banco de dados
+### 1. MySQL (linha de comando)
 
 ```bash
-mysql -u root -p < database/schema.sql
 mysql -u root -p < database/seed.sql
 ```
 
-Ajuste usuário/senha em `config/config.py` ou defina `DATABASE_URL`.
+### 1.1 MySQL Workbench ou DBeaver
+
+1. Crie uma conexão com o servidor MySQL.
+2. Abra o arquivo `seed.sql`.
+3. Execute o script completo.
+4. O banco de dados `boomcalc` será criado automaticamente e populado com os dados iniciais.
 
 ### 2. Back-end
 
@@ -66,6 +72,18 @@ python app.py
 ```
 
 Acesse `http://localhost:5000` — o Flask já serve o `index.html` da raiz.
+
+## 3. Configuração do ambiente (.env)
+
+O projeto utiliza variáveis de ambiente para armazenar configurações sensíveis, como credenciais do banco de dados e chave de criptografia.
+
+Antes de executar a aplicação, crie um arquivo `.env` dentro da pasta `config/`, utilizando o arquivo `.env.exemple` como base:
+
+```bash
+cp config/.env.exemple config/.env
+```
+
+Ou crie manualmente o arquivo `config/.env` preenchendo os valores necessários.
 
 ## Estado atual do front-end
 
