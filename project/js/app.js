@@ -2,7 +2,7 @@ const MODELS = {
   TM130: {
     label:"TM 130", sub:"Lança 5,9–12,4 m · pé direito baixo",
     minLen:5.9, maxLen:12.4, minAngle:0, maxAngle:70,
-    baseHeight:1.6, baseOffset:1.2, approx:false, jib:false, balancim:false,
+    baseHeight:1.6, baseOffset:1.2, approx:false, jib:false,
     zones:{
       frontal:{points:[[0,3000],[10,3100],[20,3200],[30,3300],[35,3500],[55,3800],[70,3800]]},
       lateral:{points:[[0,2100],[10,2150],[20,2200],[30,2300],[35,2550],[40,2700],[45,2900],[50,3300],[55,3500],[60,3700],[65,3700],[70,3800]]}
@@ -13,7 +13,7 @@ const MODELS = {
   MD300L: {
     label:"MD 300L", sub:"Lança 10,5–32,1 m · com JIB",
     minLen:10.5, maxLen:32.1, minAngle:0, maxAngle:82,
-    baseHeight:2.0, baseOffset:1.5, approx:true, jib:true, balancim:true, jibLen:9.0,
+    baseHeight:2.0, baseOffset:1.5, approx:true, jib:true, jibLen:9.0,
     capFn:function(length, radius, quad){
       const anchors={10.5:[3.0,30000],14.1:[3.5,20000],17.7:[4.0,16000],21.3:[4.5,12000],24.9:[6.0,11500],28.5:[7.0,9000],32.1:[8.0,7000]};
       const lens=Object.keys(anchors).map(Number).sort((a,b)=>a-b);
@@ -99,14 +99,42 @@ function onModelChange(){
   len=m.minLen+(m.maxLen-m.minLen)*0.4;
   slew=0;
   jibExt=1;
-  document.getElementById("useJib").checked=false;
-  document.getElementById("useJib").disabled=!m.jib;
-  document.getElementById("useBalancim").disabled=!m.balancim;
+  syncAccessoryControls();
   buildModelSwitch();
   renderSpec();
   syncSliders();
   hideReverse();
   update();
+}
+
+function syncAccessoryControls(){
+  const m=MODELS[current];
+  const jibBox=document.getElementById("useJib");
+  const jibRow=document.getElementById("jibRow");
+  const jibLabel=jibRow.querySelector("label");
+  let hint=jibRow.querySelector(".hint");
+  if(!m.jib){
+    jibBox.checked=false;
+    jibBox.disabled=true;
+    jibRow.classList.add("unavailable");
+    const text="indisponível no "+m.label;
+    jibBox.title=text;
+    jibLabel.title=text;
+    if(!hint){
+      hint=document.createElement("span");
+      hint.className="hint";
+      jibRow.appendChild(hint);
+    }
+    hint.textContent=text;
+  } else {
+    jibBox.disabled=false;
+    jibBox.title="";
+    jibLabel.title="";
+    jibRow.classList.remove("unavailable");
+    if(hint) hint.remove();
+  }
+  document.getElementById("useBalancim").disabled=false;
+  document.getElementById("loadBalancim").disabled=false;
 }
 
 function renderSpec(){
@@ -188,7 +216,6 @@ function update(){
   const lingada=Number(document.getElementById("loadLingada").value)||0;
   const cabo=Number(document.getElementById("loadCabo").value)||0;
   const balOn=document.getElementById("useBalancim").checked;
-  document.getElementById("loadBalancim").disabled=!balOn;
   const bal=balOn ? (Number(document.getElementById("loadBalancim").value)||0) : 0;
   const sum=carga+lingada+cabo+bal;
   const pct=cap>0 ? (sum/cap)*100 : 0;
@@ -335,6 +362,7 @@ document.getElementById("reverseBtn").addEventListener("click", ()=>{
     document.getElementById("loadLingada").value=0;
     document.getElementById("loadCabo").value=0;
     document.getElementById("useBalancim").checked=false;
+    document.getElementById("loadBalancim").value=0;
     document.querySelector('.tabbtn[data-tab="sim"]').click();
     update();
   };
@@ -348,10 +376,21 @@ document.getElementById("reverseWeight").addEventListener("input", ()=>{
 angleSlider.addEventListener("input", ()=>{ angle=Number(angleSlider.value); update(); });
 lenSlider.addEventListener("input", ()=>{ len=pctToLen(Number(lenSlider.value)); hideReverse(); update(); });
 slewSlider.addEventListener("input", ()=>{ slew=Number(slewSlider.value); hideReverse(); update(); });
-["loadCarga","loadLingada","loadCabo","loadBalancim"].forEach(id=>document.getElementById(id).addEventListener("input", update));
+["loadCarga","loadLingada","loadCabo"].forEach(id=>document.getElementById(id).addEventListener("input", update));
+document.getElementById("loadBalancim").addEventListener("input", ()=>{
+  const v=Number(document.getElementById("loadBalancim").value)||0;
+  if(v>0) document.getElementById("useBalancim").checked=true;
+  update();
+});
 jibSlider.addEventListener("input", ()=>{ jibExt=Number(jibSlider.value)/100; hideReverse(); update(); });
 document.getElementById("useJib").addEventListener("change", ()=>{ jibExt=1; syncSliders(); hideReverse(); update(); });
-document.getElementById("useBalancim").addEventListener("change", update);
+document.getElementById("useBalancim").addEventListener("change", ()=>{
+  const box=document.getElementById("useBalancim");
+  const input=document.getElementById("loadBalancim");
+  if(!box.checked) input.value=0;
+  else { input.focus(); input.select(); }
+  update();
+});
 
 let three3d = null;
 let orbit3d = { theta: Math.PI/4, phi: Math.PI/3, radius: 24, target: new THREE.Vector3(0,2,0) };
