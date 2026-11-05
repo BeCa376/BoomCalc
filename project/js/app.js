@@ -35,7 +35,19 @@ const MODELS = {
   }
 };
 
-let current="TM130", angle=45, len=8, slew=0, jibExt=1, dragging=false;
+let current="TM130", angle=45, len=8, slew=0, jibExt=1, jibPin=10, dragging=false;
+
+/* Furos de montagem do JIB: o JIB trava por pino em 10°, 25° ou 40° ABAIXO
+   do eixo da lança principal — não existe posição contínua entre eles. */
+const JIB_PINS=[10,25,40];
+function jibAbsRad(boomRad){ return boomRad - jibPin*Math.PI/180; }
+/* Com JIB, a lança não pode ficar abaixo do ângulo do furo — senão a ponta
+   do JIB apontaria para baixo da horizontal (e para dentro do solo). */
+function minAngleCur(){
+  const m=MODELS[current];
+  const jibOn=m.jib && document.getElementById("useJib").checked;
+  return jibOn ? Math.max(m.minAngle, jibPin) : m.minAngle;
+}
 
 const svg=document.getElementById("craneSvg");
 const angleSlider=document.getElementById("angleSlider");
@@ -99,6 +111,7 @@ function onModelChange(){
   len=m.minLen+(m.maxLen-m.minLen)*0.4;
   slew=0;
   jibExt=1;
+  jibPin=JIB_PINS[0];
   syncAccessoryControls();
   buildModelSwitch();
   renderSpec();
@@ -184,7 +197,7 @@ function computeGeometry(){
   let radius=m.baseOffset+len*Math.cos(rad);
   let height=m.baseHeight+len*Math.sin(rad);
   if(jibOn){
-    const jRad=Math.min(rad+20*Math.PI/180, Math.PI/2);
+    const jRad=jibAbsRad(rad);
     radius+=jl*Math.cos(jRad); height+=jl*Math.sin(jRad);
   }
   return {radius,height,jibOn,jibLen:jl};
@@ -202,13 +215,18 @@ function computeCapacity(){
 
 function update(){
   const m=MODELS[current];
+  const jibActive=document.getElementById("useJib").checked && m.jib;
+  angleSlider.min=minAngleCur();
+  if(angle<minAngleCur()) angle=minAngleCur();
+  angleSlider.value=angle;
   document.getElementById("angleVal").textContent=angle.toFixed(0)+"°";
   document.getElementById("lenVal").textContent=fmt(len)+" m";
   document.getElementById("slewVal").textContent=slew.toFixed(0)+"°";
-  const jibActive=document.getElementById("useJib").checked && m.jib;
   jibSlider.disabled=!jibActive;
   document.getElementById("jibCtl").style.display = jibActive ? "" : "none";
   document.querySelector(".controlsRow").classList.toggle("withJib", jibActive);
+  document.getElementById("jibAngleVal").textContent = jibActive ? jibPin+"°" : "–";
+  document.querySelectorAll("#jibPins button").forEach(b=>b.classList.toggle("active", Number(b.dataset.pin)===jibPin));
   document.getElementById("jibVal").textContent = !jibActive ? "–" : (jibExt<=0 ? "Guardado" : fmt(m.jibLen*jibExt)+" m");
 
   const {cap, quad, geo}=computeCapacity();
@@ -265,7 +283,7 @@ function drawCrane(geo, quad){
   const tipX=pivotX+len*scale*Math.cos(rad), tipY=pivotY-len*scale*Math.sin(rad);
   let jibTipX=tipX, jibTipY=tipY;
   if(geo.jibOn){
-    const jRad=Math.min(rad+20*Math.PI/180, Math.PI/2);
+    const jRad=jibAbsRad(rad);
     jibTipX=tipX+geo.jibLen*scale*Math.cos(jRad); jibTipY=tipY-geo.jibLen*scale*Math.sin(jRad);
   }
   const quadColor = quad==="frontal" ? "#5b9bd1" : "#f2a900";
@@ -314,7 +332,7 @@ function drawCrane(geo, quad){
     const x=(e.clientX-box.left)*scaleX, y=(e.clientY-box.top)*scaleY;
     const dx=x-pivotX, dy=pivotY-y;
     let newAngle=Math.atan2(dy,dx)*180/Math.PI;
-    newAngle=Math.max(m.minAngle, Math.min(m.maxAngle, newAngle));
+    newAngle=Math.max(minAngleCur(), Math.min(m.maxAngle, newAngle));
     let newLen=Math.sqrt(dx*dx+dy*dy)/scale;
     newLen=Math.max(m.minLen, Math.min(m.maxLen, newLen));
     angle=newAngle; len=newLen;
@@ -329,14 +347,14 @@ function solveMaxRadiusForWeight(weight){
   const quad=quadrantFromSlew(slew);
   let best=null;
   const step=0.25;
-  for(let a=m.minAngle; a<=m.maxAngle; a+=step){
+  for(let a=minAngleCur(); a<=m.maxAngle; a+=step){
     const radAngle=a*Math.PI/180;
     const jl=jibLenCur();
     const jibOn=jl>0;
     let radius=m.baseOffset+len*Math.cos(radAngle);
     let height=m.baseHeight+len*Math.sin(radAngle);
     if(jibOn){
-      const jRad=Math.min(radAngle+20*Math.PI/180, Math.PI/2);
+      const jRad=jibAbsRad(radAngle);
       radius+=jl*Math.cos(jRad); height+=jl*Math.sin(jRad);
     }
     let cap = current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(len, radius, quad);
@@ -382,6 +400,11 @@ document.getElementById("loadBalancim").addEventListener("input", ()=>{
   if(v>0) document.getElementById("useBalancim").checked=true;
   update();
 });
+document.querySelectorAll("#jibPins button").forEach(b=>b.addEventListener("click", ()=>{
+  const pin=Number(b.dataset.pin);
+  if(!JIB_PINS.includes(pin)) return;
+  jibPin=pin; hideReverse(); update();
+}));
 jibSlider.addEventListener("input", ()=>{ jibExt=Number(jibSlider.value)/100; hideReverse(); update(); });
 document.getElementById("useJib").addEventListener("change", ()=>{ jibExt=1; syncSliders(); hideReverse(); update(); });
 document.getElementById("useBalancim").addEventListener("change", ()=>{
@@ -489,7 +512,7 @@ function init3D(){
     const dy = local.y - boomPivot.position.y;
     const m = MODELS[current];
     let newAngle = Math.atan2(dy,dx)*180/Math.PI;
-    newAngle = Math.max(m.minAngle, Math.min(m.maxAngle, newAngle));
+    newAngle = Math.max(minAngleCur(), Math.min(m.maxAngle, newAngle));
     let newLen = Math.sqrt(dx*dx+dy*dy);
     newLen = Math.max(m.minLen, Math.min(m.maxLen, newLen));
     angle = newAngle; len = newLen;
@@ -573,7 +596,7 @@ function update3D(){
   three3d.jibPivot.position.x = len;
   if(jibOn){
     three3d.jib.visible = true;
-    three3d.jibPivot.rotation.z = 20*Math.PI/180;
+    three3d.jibPivot.rotation.z = -jibPin*Math.PI/180;
     three3d.jib.scale.x = jl;
     three3d.hookAnchor.position.x = jl;
   } else {
