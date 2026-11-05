@@ -207,7 +207,7 @@ function readRigging(){
 function computeRigging(tipHeight, peso){
   const r=readRigging();
   const out={...r, ok:true, problems:[], warnings:[]};
-  if(r.C<=0 || r.L<=0 || r.A<=0){ out.ok=false; out.show=false; return out; }
+  if(r.C<=0 || r.L<=0 || r.A<=0 || (peso<=0 && !attachedObj())){ out.ok=false; out.show=false; return out; }
   out.show=true;
   // distância horizontal do gancho até cada ponto de pega
   const horiz = r.n===1 ? 0 : r.n===2 ? r.d/2 : Math.hypot(r.d/2, r.L/2);
@@ -230,7 +230,7 @@ function computeRigging(tipHeight, peso){
   return out;
 }
 
-function quadrantFromSlew(s){ return s<=16 ? "frontal" : "lateral"; }
+function quadrantFromSlew(s){ return Math.abs(s)<=16 ? "frontal" : "lateral"; }
 
 function computeGeometry(){
   const m=MODELS[current];
@@ -258,6 +258,7 @@ function computeCapacity(){
 
 function update(){
   const m=MODELS[current];
+  syncAttachedFromFields();
   const jibActive=document.getElementById("useJib").checked && m.jib;
   angleSlider.min=minAngleCur();
   if(angle<minAngleCur()) angle=minAngleCur();
@@ -336,6 +337,7 @@ function update(){
 
   drawCrane(geo, quad, rig);
   update3D(rig);
+  afterSceneUpdate();
   scheduleApiCheck();
   render3D();
 }
@@ -519,7 +521,7 @@ document.getElementById("useBalancim").addEventListener("change", ()=>{
 
 let three3d = null;
 let orbit3d = { theta: Math.PI/4, phi: Math.PI/3, radius: 24, target: new THREE.Vector3(0,2,0) };
-let dragging3d = false, last3dX=0, last3dY=0;
+let dragging3d = false, last3dX=0, last3dY=0, draggingObj3D = null;
 
 function init3D(){
   if(three3d) return;
@@ -558,7 +560,7 @@ function init3D(){
   scene.add(truck);
 
   const turret = new THREE.Group();
-  turret.position.set(-1.0, 1.4, 0);
+  turret.position.set(SLEW_AXIS_X, TURRET_Y, 0);
   truck.add(turret);
   const turretBase = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.55,24), chassisMat);
   turretBase.position.y=0.28; turret.add(turretBase);
@@ -602,7 +604,23 @@ function init3D(){
   loadGroup.add(slings);
 
   cable.visible = false; // o cabo agora é desenhado na vertical junto com a carga
-  three3d = {renderer, scene, camera, turret, boomPivot, boom, jibPivot, jib, hookAnchor, hook, loadGroup, loadBox, slings};
+
+  /* objetos da cena e "radar" no chão: anel do raio atual e anel do alcance máximo */
+  const objectsGroup = new THREE.Group();
+  scene.add(objectsGroup);
+  const circlePts = [];
+  for(let i=0;i<=96;i++){ const t=i/96*Math.PI*2; circlePts.push(new THREE.Vector3(Math.cos(t),0,Math.sin(t))); }
+  const circleGeo = new THREE.BufferGeometry().setFromPoints(circlePts);
+  const radiusRing = new THREE.Line(circleGeo, new THREE.LineBasicMaterial({color:0x5b9bd1}));
+  const reachRing = new THREE.Line(circleGeo, new THREE.LineDashedMaterial({color:0x5c6774, dashSize:0.6, gapSize:0.4}));
+  radiusRing.position.set(SLEW_AXIS_X, 0.03, 0); reachRing.position.set(SLEW_AXIS_X, 0.02, 0);
+  scene.add(radiusRing); scene.add(reachRing);
+  const hookMarker = new THREE.Mesh(new THREE.RingGeometry(0.25,0.4,24), new THREE.MeshBasicMaterial({color:0xf2a900, side:THREE.DoubleSide}));
+  hookMarker.rotation.x = -Math.PI/2;
+  scene.add(hookMarker);
+
+  three3d = {renderer, scene, camera, turret, boomPivot, boom, jibPivot, jib, hookAnchor, hook, loadGroup, loadBox, slings,
+             objectsGroup, objMeshes:{}, radiusRing, reachRing, hookMarker};
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -639,8 +657,16 @@ function init3D(){
     ndcFromEvent(e);
     raycaster.setFromCamera(ndc, camera);
     const hits = raycaster.intersectObject(three3d.hook, false);
+    const objHits = raycaster.intersectObjects(three3d.objectsGroup.children, false);
     if(hits.length){
       draggingHook3D = true;
+    } else if(objHits.length){
+      // clicou num objeto: seleciona e começa a arrastar pelo chão
+      const id = objHits[0].object.userData.objId;
+      selectObj(id);
+      const o = sceneObjects.find(x=>x.id===id);
+      const p = objHits[0].point;
+      draggingObj3D = { id, dx:o.x-p.x, dz:o.z-p.z };
     } else {
       dragging3d=true; last3dX=e.clientX; last3dY=e.clientY;
     }
@@ -648,6 +674,16 @@ function init3D(){
   });
   canvas.addEventListener("pointermove", e=>{
     if(draggingHook3D){ dragBoomTo(e); return; }
+    if(draggingObj3D){
+      ndcFromEvent(e);
+      raycaster.setFromCamera(ndc, camera);
+      const hit = new THREE.Vector3();
+      if(raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0), 0), hit)){
+        const o = sceneObjects.find(x=>x.id===draggingObj3D.id);
+        if(o){ o.x = hit.x+draggingObj3D.dx; o.z = hit.z+draggingObj3D.dz; update(); }
+      }
+      return;
+    }
     if(!dragging3d) return;
     const dx=e.clientX-last3dX, dy=e.clientY-last3dY;
     last3dX=e.clientX; last3dY=e.clientY;
@@ -655,8 +691,8 @@ function init3D(){
     orbit3d.phi = Math.max(0.08, Math.min(Math.PI-0.08, orbit3d.phi - dy*0.008));
     updateCamera3D(); render3D();
   });
-  canvas.addEventListener("pointerup", ()=>{ dragging3d=false; draggingHook3D=false; });
-  canvas.addEventListener("pointerleave", ()=>{ dragging3d=false; draggingHook3D=false; });
+  canvas.addEventListener("pointerup", ()=>{ dragging3d=false; draggingHook3D=false; draggingObj3D=null; });
+  canvas.addEventListener("pointerleave", ()=>{ dragging3d=false; draggingHook3D=false; draggingObj3D=null; });
   canvas.addEventListener("wheel", e=>{
     e.preventDefault();
     orbit3d.radius = Math.max(7, Math.min(160, orbit3d.radius*(1+e.deltaY*0.001)));
@@ -696,6 +732,7 @@ function frame3D(view="iso"){
     const lb = new THREE.Box3().setFromObject(loadBox);
     box.union(lb);
   }
+  sceneObjects.forEach(o=>{ if(o.id!==attachedObjId) box.expandByPoint(new THREE.Vector3(o.x, o.A, o.z)); });
   const center = box.getCenter(new THREE.Vector3());
   const size = box.getSize(new THREE.Vector3());
   const fitH = (size.y/2) / Math.tan(camera.fov*Math.PI/360);
@@ -732,6 +769,8 @@ function update3D(rig=lastRig){
   const jl = jibLenCur();
   const jibOn = jl>0;
   three3d.turret.rotation.y = -slew*Math.PI/180;
+  // pé da lança na mesma posição usada no cálculo do raio/altura
+  three3d.boomPivot.position.set(m.baseOffset, m.baseHeight-TURRET_Y, 0);
   three3d.boomPivot.rotation.z = angle*Math.PI/180;
   three3d.boom.scale.x = len;
   three3d.jibPivot.position.x = len;
@@ -763,6 +802,7 @@ function updateLoad3D(rig){
   if(!rig || !rig.show){ loadBox.visible=false; pos.needsUpdate=true; slings.geometry.setDrawRange(0,2); return; }
   const drop = rig.drop || Math.max(rig.Ls,0.5);
   loadBox.visible = true;
+  loadBox.material.color.set(attachedObj() ? 0x3fb87f : 0xf2a900);
   loadBox.scale.set(rig.C, rig.A, rig.L);
   loadBox.position.set(0, -drop-rig.A/2, 0);
   const hx = rig.n===1 ? 0 : Math.min(rig.d, rig.C)/2;
@@ -908,6 +948,365 @@ async function loadHistory(){
     note.textContent = "Erro ao carregar o histórico: "+e.message;
   }
 }
+
+/* ---------- objetos da cena, içamento e radar ----------
+   O operador cadastra objetos no chão (peso + dimensões + posição). O guindaste
+   pode ir até um objeto e içá-lo ("Içar"): gira, ajusta lança e ângulo para o
+   gancho ficar sobre ele e passa a carregá-lo. "Soltar aqui" deposita o objeto
+   no chão, sob o gancho. O radar mostra, visto de cima, o alcance e as zonas de
+   capacidade da configuração atual, a lança e os objetos. */
+const SLEW_AXIS_X = -1.0;   // eixo de giro da torre no mundo 3D (x, z = 0)
+const TURRET_Y = 1.4;       // altura da base da torre no modelo 3D
+const STATE_COLORS = { ok:"#3fb87f", warn:"#f2a900", bad:"#e2483d", far:"#5c6774" };
+
+let sceneObjects = [], selectedObjId = null, attachedObjId = null, nextObjId = 1;
+
+function attachedObj(){ return sceneObjects.find(o=>o.id===attachedObjId) || null; }
+function selectedObj(){ return sceneObjects.find(o=>o.id===selectedObjId) || null; }
+
+/* posição polar em relação ao eixo de giro: raio (m) e direção (°, igual ao giro) */
+function objPolar(o){
+  const dx = o.x - SLEW_AXIS_X, dz = o.z;
+  return { R: Math.hypot(dx, dz), az: Math.atan2(dz, dx)*180/Math.PI };
+}
+function setObjPolar(o, R, az){
+  const t = az*Math.PI/180;
+  o.x = SLEW_AXIS_X + R*Math.cos(t); o.z = R*Math.sin(t);
+}
+
+function addObj(props){
+  const o = { id: nextObjId++, nome:"Objeto "+nextObjId, peso:1000, C:3, L:1.5, A:1.2, x:0, z:0, rot:0, ...props };
+  if(props.R!==undefined){ setObjPolar(o, props.R, props.az||0); o.rot = props.az||0; }
+  delete o.R; delete o.az;
+  sceneObjects.push(o);
+  return o;
+}
+
+/* ---- geometria / capacidade para uma configuração qualquer (sem mexer na atual) ---- */
+function geoFor(L, a){
+  const m = MODELS[current], rad = a*Math.PI/180, jl = jibLenCur();
+  let radius = m.baseOffset + L*Math.cos(rad), height = m.baseHeight + L*Math.sin(rad);
+  if(jl>0){ const j = jibAbsRad(rad); radius += jl*Math.cos(j); height += jl*Math.sin(j); }
+  return { radius, height };
+}
+function capFor(L, a, quad){
+  const m = MODELS[current];
+  return current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(L, geoFor(L,a).radius, quad);
+}
+/* ângulo da lança que leva o gancho ao raio R com comprimento L (o raio cai com o ângulo) */
+function solveAngleForRadius(L, R){
+  const m = MODELS[current];
+  let lo = minAngleCur(), hi = m.maxAngle;
+  if(R > geoFor(L, lo).radius + 1e-6 || R < geoFor(L, hi).radius - 1e-6) return null;
+  for(let i=0;i<40;i++){
+    const mid = (lo+hi)/2;
+    if(geoFor(L, mid).radius > R) lo = mid; else hi = mid;
+  }
+  return (lo+hi)/2;
+}
+
+function rigMasses(){
+  const num = id => Number(document.getElementById(id).value)||0;
+  return num("loadLingada") + num("loadCabo") + (document.getElementById("useBalancim").checked ? num("loadBalancim") : 0);
+}
+
+/* melhor configuração para içar o objeto: mantém a lança atual se der; senão
+   procura o comprimento com menor uso de capacidade */
+function bestConfigFor(o){
+  const m = MODELS[current];
+  const {R, az} = objPolar(o);
+  const quad = quadrantFromSlew(az);
+  const W = o.peso + rigMasses();
+  const tryLen = L => { const a = solveAngleForRadius(L, R); if(a===null) return null;
+                        const cap = capFor(L, a, quad); return { L, a, cap, pct: cap>0 ? W/cap*100 : Infinity }; };
+  const atual = tryLen(len);
+  if(atual && atual.pct<=100) return { ...atual, R, az, W };
+  let best = atual;
+  for(let L=m.minLen; L<=m.maxLen+1e-9; L+=0.25){
+    const c = tryLen(L);
+    if(c && (!best || c.pct < best.pct - 1e-9 || (Math.abs(c.pct-best.pct)<1e-9 && Math.abs(L-len)<Math.abs(best.L-len)))) best = c;
+  }
+  return best ? { ...best, R, az, W } : { R, az, W, unreachable:true };
+}
+
+function objState(o){
+  const m = MODELS[current];
+  const cfg = bestConfigFor(o);
+  if(cfg.W > m.capNominal) return { state:"bad", cfg, text:`${fmt(cfg.W/1000,1)} t passa da capacidade nominal do ${m.label} (${fmt(m.capNominal/1000,0)} t).` };
+  if(cfg.unreachable) return { state:"far", cfg, text:`Fora do alcance do ${m.label} (raio ${fmt(cfg.R)} m). Aproxime o objeto.` };
+  const conf = `lança ${fmt(cfg.L)} m, ângulo ${fmt(cfg.a,0)}°`;
+  if(cfg.pct<=80)  return { state:"ok",   cfg, text:`Pode içar: ${fmt(cfg.pct,0)}% da capacidade (${conf}).` };
+  if(cfg.pct<=100) return { state:"warn", cfg, text:`Próximo do limite: ${fmt(cfg.pct,0)}% da capacidade (${conf}).` };
+  return { state:"bad", cfg, text:`Não dá para içar com segurança: ${fmt(cfg.pct,0)}% da capacidade mesmo na melhor configuração.` };
+}
+
+/* posição do gancho no chão (mundo 3D) */
+function hookGround(){
+  const R = computeGeometry().radius, t = slew*Math.PI/180;
+  return { x: SLEW_AXIS_X + R*Math.cos(t), z: R*Math.sin(t), R };
+}
+
+/* ---- campos da carga <-> objeto içado ---- */
+function syncAttachedFromFields(){
+  const o = attachedObj(); if(!o) return;
+  const num = id => Number(document.getElementById(id).value)||0;
+  o.peso = num("loadCarga"); o.C = num("dimC") || o.C; o.L = num("dimL") || o.L; o.A = num("dimA") || o.A;
+}
+function writeFieldsFromObj(o){
+  document.getElementById("loadCarga").value = o.peso;
+  document.getElementById("dimC").value = o.C;
+  document.getElementById("dimL").value = o.L;
+  document.getElementById("dimA").value = o.A;
+  const dist = document.getElementById("rigDist");
+  if((Number(dist.value)||0) > o.C) dist.value = +(o.C*0.9).toFixed(2); // pegas dentro da carga
+}
+
+/* ---- içar / soltar ---- */
+let animId = 0;
+function animateTo(target, done){
+  const id = ++animId, from = { slew, len, angle }, t0 = performance.now(), dur = 700;
+  let ds = target.slew - from.slew; if(ds>180) ds-=360; if(ds<-180) ds+=360; // menor caminho de giro
+  const step = now=>{
+    if(id!==animId) return;
+    const k = Math.min(1, (now-t0)/dur), e = k<0.5 ? 2*k*k : 1-Math.pow(-2*k+2,2)/2;
+    slew = from.slew + ds*e; len = from.len + (target.len-from.len)*e; angle = from.angle + (target.angle-from.angle)*e;
+    if(k>=1){ slew = target.slew; len = target.len; angle = target.angle; }
+    syncSliders(); update();
+    if(k<1 && !document.hidden) requestAnimationFrame(step);
+    else { animId++; slew = target.slew; len = target.len; angle = target.angle; syncSliders(); update(); done && done(); }
+  };
+  requestAnimationFrame(step);
+  if(document.hidden) step(t0+dur); // aba em segundo plano: sem animação
+}
+
+function pickObj(o){
+  const st = objState(o);
+  const status = document.getElementById("objStatus");
+  if(st.state==="far" || st.cfg.unreachable){ status.textContent = st.text; status.className = "objStatus bad"; return; }
+  if(attachedObjId && attachedObjId!==o.id) dropObj(); // larga o que estava carregando
+  hideReverse();
+  animateTo({ slew: Math.round(st.cfg.az), len: st.cfg.L, angle: st.cfg.a }, ()=>{
+    attachedObjId = o.id;
+    writeFieldsFromObj(o);
+    update();
+  });
+}
+
+function dropObj(){
+  const o = attachedObj(); if(!o) return;
+  const h = hookGround();
+  o.x = h.x; o.z = h.z; o.rot = slew;
+  attachedObjId = null;
+  document.getElementById("loadCarga").value = 0;
+  update();
+}
+
+function selectObj(id){ selectedObjId = id; refreshObjUI(true); }
+
+/* ---- UI: lista de objetos + editor ---- */
+function refreshObjUI(fillFields){
+  const chips = document.getElementById("objChips");
+  chips.innerHTML = "";
+  sceneObjects.forEach(o=>{
+    const st = o.id===attachedObjId ? { state:"ok" } : objState(o);
+    const b = document.createElement("button");
+    b.className = "objChip"+(o.id===selectedObjId?" active":"");
+    b.innerHTML = `<span class="dot" style="background:${STATE_COLORS[st.state]}"></span>${o.nome}${o.id===attachedObjId?" · no gancho":""}`;
+    b.onclick = ()=>selectObj(o.id);
+    chips.appendChild(b);
+  });
+  const o = selectedObj();
+  const ed = document.getElementById("objEditor");
+  ed.style.display = o ? "" : "none";
+  if(!o) return;
+  const carregando = o.id===attachedObjId;
+  const {R, az} = carregando ? { R: hookGround().R, az: slew } : objPolar(o);
+  const vals = { objNome:o.nome, objPeso:o.peso, objC:o.C, objL:o.L, objA:o.A, objR:+R.toFixed(2), objAz:Math.round(az) };
+  Object.entries(vals).forEach(([id,v])=>{
+    const el = document.getElementById(id);
+    if(fillFields || document.activeElement!==el) el.value = v;
+  });
+  document.getElementById("objR").disabled = carregando;
+  document.getElementById("objAz").disabled = carregando;
+  document.getElementById("objPick").disabled = carregando;
+  document.getElementById("objDrop").disabled = !carregando;
+  const status = document.getElementById("objStatus");
+  if(carregando){ status.textContent = "No gancho. Mova a lança e use \"Soltar aqui\" para deixar o objeto sob o gancho."; status.className = "objStatus ok"; }
+  else { const st = objState(o); status.textContent = st.text; status.className = "objStatus "+(st.state==="far"?"bad":st.state); }
+}
+
+function onObjFieldInput(){
+  const o = selectedObj(); if(!o) return;
+  const num = (id,min=0) => Math.max(min, Number(document.getElementById(id).value)||0);
+  o.nome = document.getElementById("objNome").value || "Objeto";
+  o.peso = num("objPeso"); o.C = num("objC",0.1); o.L = num("objL",0.1); o.A = num("objA",0.1);
+  if(o.id===attachedObjId) writeFieldsFromObj(o);
+  else setObjPolar(o, num("objR"), Number(document.getElementById("objAz").value)||0);
+  update();
+}
+["objNome","objPeso","objC","objL","objA","objR","objAz"].forEach(id=>document.getElementById(id).addEventListener("input", onObjFieldInput));
+document.getElementById("objAdd").addEventListener("click", ()=>{
+  // novo objeto num ponto livre dentro do alcance atual
+  const R = Math.max(4, Math.min(geoFor(len, minAngleCur()).radius*0.7, 10));
+  const o = addObj({ nome:"Objeto "+nextObjId, R, az: (sceneObjects.length*47)%360-180 });
+  selectObj(o.id); update();
+});
+document.getElementById("objDel").addEventListener("click", ()=>{
+  const o = selectedObj(); if(!o) return;
+  if(o.id===attachedObjId){ attachedObjId = null; document.getElementById("loadCarga").value = 0; }
+  sceneObjects = sceneObjects.filter(x=>x.id!==o.id);
+  selectedObjId = sceneObjects.length ? sceneObjects[0].id : null;
+  update(); refreshObjUI(true);
+});
+document.getElementById("objPick").addEventListener("click", ()=>{ const o = selectedObj(); if(o) pickObj(o); });
+document.getElementById("objDrop").addEventListener("click", dropObj);
+
+/* ---- 3D: caixas no chão + anéis ---- */
+function syncObjects3D(){
+  if(!three3d) return;
+  const {objectsGroup, objMeshes} = three3d;
+  const ids = new Set(sceneObjects.map(o=>o.id));
+  Object.keys(objMeshes).forEach(id=>{ if(!ids.has(+id)){ objectsGroup.remove(objMeshes[id]); delete objMeshes[id]; } });
+  sceneObjects.forEach(o=>{
+    let mesh = objMeshes[o.id];
+    if(!mesh){
+      mesh = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), new THREE.MeshStandardMaterial({roughness:0.6, transparent:true, opacity:0.8}));
+      mesh.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)), new THREE.LineBasicMaterial({color:0xffffff})));
+      mesh.userData.objId = o.id;
+      objectsGroup.add(mesh); objMeshes[o.id] = mesh;
+    }
+    mesh.visible = o.id!==attachedObjId; // no gancho, quem aparece é a carga pendurada
+    mesh.scale.set(o.C, o.A, o.L);
+    mesh.position.set(o.x, o.A/2, o.z);
+    mesh.rotation.y = -o.rot*Math.PI/180;
+    const st = objState(o).state;
+    mesh.material.color.set(STATE_COLORS[st]);
+    mesh.children[0].material.color.set(o.id===selectedObjId ? 0xffffff : 0x0e1114);
+  });
+  const h = hookGround();
+  three3d.radiusRing.scale.setScalar(Math.max(h.R, 0.01));
+  three3d.reachRing.scale.setScalar(geoFor(MODELS[current].maxLen, minAngleCur()).radius);
+  three3d.reachRing.computeLineDistances();
+  three3d.hookMarker.position.set(h.x, 0.04, h.z);
+}
+
+/* ---- radar (vista de cima) ---- */
+function currentWeight(){
+  const carga = Number(document.getElementById("loadCarga").value)||0;
+  if(carga>0) return carga + rigMasses();
+  const o = selectedObj();
+  return o ? o.peso + rigMasses() : 0;
+}
+
+function drawRadar(){
+  const cv = document.getElementById("radarCanvas");
+  const size = cv.clientWidth; if(!size) return;
+  const dpr = window.devicePixelRatio||1;
+  if(cv.width!==Math.round(size*dpr)){ cv.width = cv.height = Math.round(size*dpr); }
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,size,size);
+  const m = MODELS[current];
+  const reachMax = geoFor(m.maxLen, minAngleCur()).radius;
+  const farObj = Math.max(0, ...sceneObjects.map(o=>objPolar(o).R + Math.hypot(o.C,o.L)/2));
+  const range = Math.max(reachMax, farObj, 5)*1.08;
+  const cx = size/2, cy = size/2, k = (size/2-4)/range;
+  const P = (x,z)=>[cx+(x-SLEW_AXIS_X)*k, cy+z*k];
+  radarView = { cx, cy, k, range };
+  document.getElementById("radarRange").textContent = "máx. "+fmt(reachMax,1)+" m";
+
+  ctx.beginPath(); ctx.arc(cx,cy,range*k,0,Math.PI*2); ctx.fillStyle="rgba(20,24,29,0.9)"; ctx.fill();
+
+  // zonas de capacidade com a lança atual (verde ≤80%, amarelo ≤100%, vermelho acima)
+  const W = currentWeight();
+  const step = range/48;
+  const F = 16*Math.PI/180;
+  [["frontal",-F,F],["lateral",F,2*Math.PI-F]].forEach(([quad,a0,a1])=>{
+    for(let r=step/2; r<range; r+=step){
+      const a = solveAngleForRadius(len, r); if(a===null) continue;
+      const cap = capFor(len, a, quad);
+      let col;
+      if(W<=0) col = "rgba(91,155,209,0.22)";
+      else { const p = W/cap; col = p<=0.8 ? "rgba(63,184,127,0.35)" : p<=1 ? "rgba(242,169,0,0.38)" : "rgba(226,72,61,0.30)"; }
+      ctx.beginPath(); ctx.arc(cx,cy,(r+step/2)*k,a0,a1); ctx.arc(cx,cy,Math.max(0,(r-step/2))*k,a1,a0,true); ctx.closePath();
+      ctx.fillStyle = col; ctx.fill();
+    }
+  });
+
+  // anéis de distância
+  const ringStep = range>30 ? 10 : 5;
+  ctx.strokeStyle="rgba(135,147,161,0.35)"; ctx.fillStyle="rgba(135,147,161,0.8)"; ctx.lineWidth=1;
+  ctx.font="8px IBM Plex Mono, monospace";
+  for(let r=ringStep; r<range; r+=ringStep){
+    ctx.beginPath(); ctx.arc(cx,cy,r*k,0,Math.PI*2); ctx.stroke();
+    // rótulo em cima do anel (fora do setor frontal, para não cobrir a lança)
+    ctx.fillText(r+"m", cx+2, cy-r*k-2);
+  }
+  // limites do setor frontal (±16°)
+  ctx.setLineDash([3,3]);
+  [-F,F].forEach(t=>{ ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(t)*range*k, cy+Math.sin(t)*range*k); ctx.stroke(); });
+  ctx.setLineDash([]);
+
+  // caminhão
+  const [tx0,tz0] = P(-4.2,-1.2), [tx1,tz1] = P(3.0,1.2);
+  ctx.fillStyle="#3a434e"; ctx.fillRect(tx0,tz0,tx1-tx0,tz1-tz0);
+
+  // objetos
+  sceneObjects.forEach(o=>{
+    if(o.id===attachedObjId) return;
+    const [ox,oz] = P(o.x,o.z);
+    ctx.save(); ctx.translate(ox,oz); ctx.rotate(o.rot*Math.PI/180);
+    ctx.fillStyle = STATE_COLORS[objState(o).state];
+    const w = Math.max(3,o.C*k), h = Math.max(3,o.L*k);
+    ctx.fillRect(-w/2,-h/2,w,h);
+    if(o.id===selectedObjId){ ctx.strokeStyle="#ffffff"; ctx.lineWidth=1.5; ctx.strokeRect(-w/2-1.5,-h/2-1.5,w+3,h+3); }
+    ctx.restore();
+  });
+
+  // lança + gancho
+  const hk = hookGround();
+  const [hx,hz] = P(hk.x,hk.z);
+  ctx.strokeStyle = quadrantFromSlew(slew)==="frontal" ? "#5b9bd1" : "#f2a900"; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(hx,hz); ctx.stroke();
+  const ao = attachedObj();
+  if(ao){
+    ctx.save(); ctx.translate(hx,hz); ctx.rotate(slew*Math.PI/180);
+    ctx.fillStyle="rgba(63,184,127,0.9)"; ctx.fillRect(-ao.C*k/2,-ao.L*k/2,Math.max(3,ao.C*k),Math.max(3,ao.L*k)); ctx.restore();
+  }
+  ctx.beginPath(); ctx.arc(hx,hz,3.5,0,Math.PI*2); ctx.fillStyle="#f2a900"; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx,cy,3,0,Math.PI*2); ctx.fillStyle="#828d99"; ctx.fill();
+}
+
+let radarView = null;
+document.getElementById("radarCanvas").addEventListener("click", e=>{
+  if(!radarView) return;
+  const rect = e.currentTarget.getBoundingClientRect();
+  const {cx, cy, k} = radarView;
+  const x = SLEW_AXIS_X + ((e.clientX-rect.left)-cx)/k, z = ((e.clientY-rect.top)-cy)/k;
+  // clicou perto de um objeto: seleciona
+  let hit = null, best = Infinity;
+  sceneObjects.forEach(o=>{
+    if(o.id===attachedObjId) return;
+    const d = Math.hypot(o.x-x, o.z-z), lim = Math.max(1.5, Math.hypot(o.C,o.L)/2);
+    if(d<lim && d<best){ best = d; hit = o; }
+  });
+  if(hit){ selectObj(hit.id); update(); return; }
+  // clicou num espaço vazio: move o objeto selecionado até lá
+  const o = selectedObj();
+  if(o && o.id!==attachedObjId){ o.x = x; o.z = z; update(); refreshObjUI(true); }
+});
+window.addEventListener("resize", drawRadar);
+
+function afterSceneUpdate(){
+  syncObjects3D();
+  drawRadar();
+  refreshObjUI(false);
+}
+
+// objetos de exemplo
+addObj({ nome:"Contêiner", peso:2000, C:6, L:2.4, A:2.6, R:9, az:20 });
+addObj({ nome:"Viga metálica", peso:800, C:8, L:0.4, A:0.6, R:7, az:-60 });
+selectedObjId = 1;
+
 
 onModelChange();
 apiInit();

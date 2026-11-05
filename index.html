@@ -41,18 +41,48 @@
         </div>
       </div>
 
-      <div class="stage" id="stage2d">
-        <svg id="craneSvg" viewBox="0 0 640 380" xmlns="http://www.w3.org/2000/svg"></svg>
-      </div>
+      <div class="stageWrap">
+        <div class="stage" id="stage2d">
+          <svg id="craneSvg" viewBox="0 0 640 380" xmlns="http://www.w3.org/2000/svg"></svg>
+        </div>
 
-      <div class="stage3d" id="stage3d" style="display:none;">
-        <canvas id="crane3dCanvas"></canvas>
+        <div class="stage3d" id="stage3d" style="display:none;">
+          <canvas id="crane3dCanvas"></canvas>
+        </div>
+
+        <div class="radarBox" id="radarBox" title="Clique num objeto para selecionar; clique num espaço vazio para mover o objeto selecionado até lá.">
+          <div class="radarHead"><span>RADAR</span><span id="radarRange">–</span></div>
+          <canvas id="radarCanvas"></canvas>
+        </div>
       </div>
       <div class="viewBtnRow" id="viewBtnRow" style="display:none;">
         <button class="btnSecondary" data-camview="iso">Isométrica</button>
         <button class="btnSecondary" data-camview="front">Frontal</button>
         <button class="btnSecondary" data-camview="side">Lateral</button>
         <button class="btnSecondary" data-camview="top">Topo</button>
+      </div>
+
+      <div class="objBar">
+        <span class="sectionTitle" style="margin:0;">Objetos na cena</span>
+        <div class="objChips" id="objChips"></div>
+        <button class="btnSecondary" id="objAdd">+ Adicionar objeto</button>
+      </div>
+      <div class="objEditor" id="objEditor" style="display:none;">
+        <div class="objFields">
+          <div class="field"><label>Nome</label><input type="text" id="objNome"></div>
+          <div class="field"><label>Peso (kg)</label><input type="number" id="objPeso" min="0"></div>
+          <div class="field"><label>Comprimento (m)</label><input type="number" id="objC" min="0.1" step="0.1"></div>
+          <div class="field"><label>Largura (m)</label><input type="number" id="objL" min="0.1" step="0.1"></div>
+          <div class="field"><label>Altura (m)</label><input type="number" id="objA" min="0.1" step="0.1"></div>
+          <div class="field"><label>Raio (m)</label><input type="number" id="objR" min="0" step="0.1"></div>
+          <div class="field"><label>Direção (°)</label><input type="number" id="objAz" min="-180" max="180" step="1"></div>
+        </div>
+        <div class="objActions">
+          <button class="btnPrimary" id="objPick">Içar</button>
+          <button class="btnSecondary" id="objDrop">Soltar aqui</button>
+          <button class="btnSecondary" id="objDel">Remover</button>
+          <span class="objStatus" id="objStatus"></span>
+        </div>
       </div>
 
       <div class="controlsRow">
@@ -66,7 +96,7 @@
         </div>
         <div class="ctl">
           <label><span>Giro</span> <span class="v" id="slewVal">–</span></label>
-          <input type="range" id="slewSlider" min="0" max="180" step="1">
+          <input type="range" id="slewSlider" min="-180" max="180" step="1">
         </div>
         <div class="ctl" id="jibCtl" style="display:none;">
           <label><span>Lance do JIB</span> <span class="v" id="jibVal">–</span></label>

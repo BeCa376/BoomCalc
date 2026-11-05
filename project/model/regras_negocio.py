@@ -9,8 +9,8 @@ from project.functions import utils
 
 
 def quadrante_por_giro(angulo_giro_graus):
-    """Giro 0°-16° = área frontal; acima disso = lateral/traseira."""
-    return "frontal" if angulo_giro_graus <= 16 else "lateral_traseira"
+    """Giro de até 16° para qualquer lado = área frontal; além disso = lateral/traseira."""
+    return "frontal" if abs(angulo_giro_graus or 0) <= 16 else "lateral_traseira"
 
 
 def capacidade_disponivel(linhas_tabela, angulo=None, raio=None):
