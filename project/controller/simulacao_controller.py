@@ -9,8 +9,10 @@ bp = Blueprint("simulacao", __name__, url_prefix="/api")
 
 def _linhas_mais_proximas(guindaste_id, quadrante, comprimento_lanca):
     """
-    Pega, dentre os comprimentos de lança cadastrados na tabela, o mais
-    próximo do comprimento atual da simulação (RN06).
+    Pega, dentre os comprimentos de lança cadastrados na tabela, o menor que
+    seja maior ou igual ao comprimento atual (RN06). Lança mais longa tem
+    capacidade menor, então arredondar para cima é o lado seguro. Se a lança
+    for maior que todos os comprimentos tabelados, usa o maior.
     """
     linhas = TabelaCapacidade.query.filter_by(
         guindaste_id=guindaste_id, quadrante=quadrante
@@ -18,7 +20,8 @@ def _linhas_mais_proximas(guindaste_id, quadrante, comprimento_lanca):
     if not linhas:
         return []
     comprimentos = sorted({float(l.comprimento_lanca_m) for l in linhas})
-    mais_proximo = min(comprimentos, key=lambda c: abs(c - comprimento_lanca))
+    acima = [c for c in comprimentos if c >= float(comprimento_lanca)]
+    mais_proximo = acima[0] if acima else comprimentos[-1]
     return [
         {
             "angulo_graus": float(l.angulo_graus) if l.angulo_graus is not None else None,
@@ -28,6 +31,19 @@ def _linhas_mais_proximas(guindaste_id, quadrante, comprimento_lanca):
         for l in linhas
         if float(l.comprimento_lanca_m) == mais_proximo
     ]
+
+
+def _fora_dos_limites(guindaste, dados):
+    """Comprimento de lança e ângulo precisam estar dentro do que o modelo permite."""
+    comp = float(dados["comprimento_lanca_m"])
+    ang = float(dados["angulo_graus"])
+    cmin, cmax = float(guindaste.comprimento_lanca_min_m), float(guindaste.comprimento_lanca_max_m)
+    amin, amax = float(guindaste.angulo_min_graus), float(guindaste.angulo_max_graus)
+    if not cmin <= comp <= cmax:
+        return f"RN06: comprimento de lança {comp} m fora do limite do {guindaste.modelo} ({cmin}–{cmax} m)."
+    if not amin <= ang <= amax:
+        return f"RN06: ângulo {ang}° fora do limite do {guindaste.modelo} ({amin}–{amax}°)."
+    return None
 
 
 @bp.post("/simular")
@@ -48,6 +64,9 @@ def simular():
         return jsonify({"erro": f"RN03: campos obrigatórios ausentes: {', '.join(faltando)}"}), 400
 
     guindaste = Guindaste.query.get_or_404(dados["guindaste_id"])
+    erro_limite = _fora_dos_limites(guindaste, dados)
+    if erro_limite:
+        return jsonify({"erro": erro_limite}), 400
     quadrante = quadrante_por_giro(dados.get("angulo_giro_graus", 0))
     linhas = _linhas_mais_proximas(dados["guindaste_id"], quadrante, dados["comprimento_lanca_m"])
     capacidade = capacidade_disponivel(

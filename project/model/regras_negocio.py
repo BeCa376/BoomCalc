@@ -29,6 +29,10 @@ def capacidade_disponivel(linhas_tabela, angulo=None, raio=None):
         pontos = [(l["angulo_graus"], l["capacidade_kg"]) for l in linhas_tabela]
         return utils.interpolar(pontos, angulo)
     pontos = [(l["raio_m"], l["capacidade_kg"]) for l in linhas_tabela]
+    # Além do maior raio tabelado não existe capacidade garantida: não
+    # extrapolar (a capacidade cai com o raio, repetir a ponta seria inseguro).
+    if raio is not None and raio > max(p[0] for p in pontos):
+        return 0
     return utils.interpolar(pontos, raio)
 
 
@@ -53,8 +57,9 @@ def avaliar_operacao(capacidade_kg, peso_carga, massa_lingada, massa_cabo,
 
     if not capacidade_kg or capacidade_kg <= 0:
         erros.append(
-            "RN05: não há tabela de capacidade cadastrada para este guindaste, "
-            "quadrante e comprimento de lança — operação não pode ser validada."
+            "RN05: sem capacidade tabelada para este ponto (raio fora da tabela "
+            "ou sem dados para este quadrante/comprimento de lança) — operação "
+            "não pode ser validada."
         )
 
     alerta_vento = False
