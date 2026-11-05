@@ -68,8 +68,12 @@
           <input type="range" id="slewSlider" min="0" max="180" step="1">
         </div>
         <div class="ctl" id="jibCtl" style="display:none;">
-          <label><span>Extensão do JIB</span> <span class="v" id="jibVal">–</span></label>
-          <input type="range" id="jibSlider" min="0" max="100" step="1" value="100" disabled>
+          <label><span>Lance do JIB</span> <span class="v" id="jibVal">–</span></label>
+          <div class="viewToggle jibPins" id="jibLances">
+            <button data-lance="9" class="active">9 m</button>
+            <button data-lance="15">15 m</button>
+            <button data-lance="20">20 m</button>
+          </div>
           <label style="margin:8px 0 4px;"><span>Furo do JIB (abaixo da lança)</span> <span class="v" id="jibAngleVal">–</span></label>
           <div class="viewToggle jibPins" id="jibPins">
             <button data-pin="10" class="active">10°</button>

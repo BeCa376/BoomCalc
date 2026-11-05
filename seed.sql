@@ -156,7 +156,7 @@ INSERT INTO guindaste
 VALUES
 ('TM 130', 'Grupo Luna', 26000, 5.9, 12.4, 0, 70, FALSE, NULL, 25500,
  'Indicado para locais de pé direito baixo. Tabela por ângulo/zona de giro.'),
-('MD 300L', 'Madal Palfinger', 30000, 10.5, 32.1, 0, 82, TRUE, 9.0, 29000,
+('MD 300L', 'Madal Palfinger', 30000, 10.5, 32.1, 0, 82, TRUE, 20.0, 29000,
  'Tabela de capacidade aproximada — validar célula a célula com catálogo oficial completo.');
 
 -- Tabela de capacidade — TM 130 (Zona I / Zona II, por ângulo)

@@ -13,7 +13,7 @@ const MODELS = {
   MD300L: {
     label:"MD 300L", sub:"Lança 10,5–32,1 m · com JIB",
     minLen:10.5, maxLen:32.1, minAngle:0, maxAngle:82,
-    baseHeight:2.0, baseOffset:1.5, approx:true, jib:true, jibLen:9.0,
+    baseHeight:2.0, baseOffset:1.5, approx:true, jib:true, jibLances:[9,15,20],
     capFn:function(length, radius, quad){
       const anchors={10.5:[3.0,30000],14.1:[3.5,20000],17.7:[4.0,16000],21.3:[4.5,12000],24.9:[6.0,11500],28.5:[7.0,9000],32.1:[8.0,7000]};
       const lens=Object.keys(anchors).map(Number).sort((a,b)=>a-b);
@@ -35,7 +35,7 @@ const MODELS = {
   }
 };
 
-let current="TM130", angle=45, len=8, slew=0, jibExt=1, jibPin=10, dragging=false;
+let current="TM130", angle=45, len=8, slew=0, jibLance=9, jibPin=10, dragging=false;
 
 /* Furos de montagem do JIB: o JIB trava por pino em 10°, 25° ou 40° ABAIXO
    do eixo da lança principal — não existe posição contínua entre eles. */
@@ -53,7 +53,6 @@ const svg=document.getElementById("craneSvg");
 const angleSlider=document.getElementById("angleSlider");
 const lenSlider=document.getElementById("lenSlider");
 const slewSlider=document.getElementById("slewSlider");
-const jibSlider=document.getElementById("jibSlider");
 
 function fmt(n,d=1){ return Number(n).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d}); }
 
@@ -110,7 +109,7 @@ function onModelChange(){
   angle=Math.min(angle,m.maxAngle);
   len=m.minLen+(m.maxLen-m.minLen)*0.4;
   slew=0;
-  jibExt=1;
+  jibLance=MODELS[current].jib ? MODELS[current].jibLances[0] : 0;
   jibPin=JIB_PINS[0];
   syncAccessoryControls();
   buildModelSwitch();
@@ -162,13 +161,13 @@ function renderSpec(){
 
 function lenToPct(l){ const m=MODELS[current]; return ((l-m.minLen)/(m.maxLen-m.minLen))*100; }
 function pctToLen(p){ const m=MODELS[current]; return m.minLen+(m.maxLen-m.minLen)*(p/100); }
-/* JIB: comprimento atual = comprimento total do modelo x extensão (0 = guardado, 1 = estendido) */
+/* JIB: comprimento do lance escolhido (9, 15 ou 20 m), ou 0 se o JIB estiver desligado */
 function jibLenCur(){
   const m=MODELS[current];
   const on=document.getElementById("useJib").checked && m.jib;
-  return on ? m.jibLen*jibExt : 0;
+  return on ? jibLance : 0;
 }
-function syncSliders(){ angleSlider.value=angle; lenSlider.value=lenToPct(len); slewSlider.value=slew; jibSlider.value=Math.round(jibExt*100); }
+function syncSliders(){ angleSlider.value=angle; lenSlider.value=lenToPct(len); slewSlider.value=slew; }
 
 function hideReverse(){
   document.getElementById("reverseResult").style.display="none";
@@ -222,12 +221,12 @@ function update(){
   document.getElementById("angleVal").textContent=angle.toFixed(0)+"°";
   document.getElementById("lenVal").textContent=fmt(len)+" m";
   document.getElementById("slewVal").textContent=slew.toFixed(0)+"°";
-  jibSlider.disabled=!jibActive;
   document.getElementById("jibCtl").style.display = jibActive ? "" : "none";
   document.querySelector(".controlsRow").classList.toggle("withJib", jibActive);
   document.getElementById("jibAngleVal").textContent = jibActive ? jibPin+"°" : "–";
   document.querySelectorAll("#jibPins button").forEach(b=>b.classList.toggle("active", Number(b.dataset.pin)===jibPin));
-  document.getElementById("jibVal").textContent = !jibActive ? "–" : (jibExt<=0 ? "Guardado" : fmt(m.jibLen*jibExt)+" m");
+  document.getElementById("jibVal").textContent = !jibActive ? "–" : jibLance+" m";
+  document.querySelectorAll("#jibLances button").forEach(b=>b.classList.toggle("active", Number(b.dataset.lance)===jibLance));
 
   const {cap, quad, geo}=computeCapacity();
   const carga=Number(document.getElementById("loadCarga").value)||0;
@@ -241,7 +240,7 @@ function update(){
   document.getElementById("quadTagOut").innerHTML = quad==="frontal"
     ? `<span class="quadPill f">FRONTAL</span>` : `<span class="quadPill l">LATERAL/TRAS.</span>`;
   document.getElementById("radiusOut").textContent=fmt(geo.radius)+" m";
-  document.getElementById("lenOut").textContent=fmt(len)+" m"+(geo.jibOn?" + JIB":"");
+  document.getElementById("lenOut").textContent=fmt(len)+" m"+(geo.jibOn?" + JIB "+geo.jibLen+" m":"");
   document.getElementById("angleOut").textContent=angle.toFixed(0)+"°";
   document.getElementById("heightOut").textContent=fmt(geo.height)+" m";
   document.getElementById("sumOut").textContent=fmt(sum,0)+" kg";
@@ -405,8 +404,13 @@ document.querySelectorAll("#jibPins button").forEach(b=>b.addEventListener("clic
   if(!JIB_PINS.includes(pin)) return;
   jibPin=pin; hideReverse(); update();
 }));
-jibSlider.addEventListener("input", ()=>{ jibExt=Number(jibSlider.value)/100; hideReverse(); update(); });
-document.getElementById("useJib").addEventListener("change", ()=>{ jibExt=1; syncSliders(); hideReverse(); update(); });
+/* Lances padronizados do JIB treliçado: só 9, 15 ou 20 m. */
+document.querySelectorAll("#jibLances button").forEach(b=>b.addEventListener("click", ()=>{
+  const l=Number(b.dataset.lance);
+  if(!MODELS[current].jib || !MODELS[current].jibLances.includes(l)) return;
+  jibLance=l; hideReverse(); update();
+}));
+document.getElementById("useJib").addEventListener("change", ()=>{ hideReverse(); update(); });
 document.getElementById("useBalancim").addEventListener("change", ()=>{
   const box=document.getElementById("useBalancim");
   const input=document.getElementById("loadBalancim");
