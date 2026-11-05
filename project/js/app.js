@@ -189,6 +189,7 @@ function interp(points,x){
 /* ---------- carga: dimensões e pontos de pega ----------
    Distância vertical entre a ponta da lança/JIB e o gancho (moitão + cabo). */
 const HOOK_DROP_M=0.8;
+const LIMITE_VENTO_MS=12.5; // mesmo valor padrão de config.py (RN08)
 let lastRig=null; // última lingada calculada (usada ao reabrir o 3D)
 const SLING_MIN_ANGLE=45; // ângulo mínimo recomendado da linga com a horizontal
 
@@ -280,6 +281,9 @@ function update(){
   /* Carga acima da capacidade nominal do equipamento não é uma operação
      "insegura": é um dado irreal (ex.: 250 t num guindaste de 30 t). */
   const irreal=sum>m.capNominal;
+  const ventoTxt=document.getElementById("loadVento").value;
+  const vento = ventoTxt==="" ? null : Number(ventoTxt);
+  const ventoAlto = vento!==null && vento>LIMITE_VENTO_MS;
   const rig=computeRigging(geo.height, carga);
   lastRig=rig;
   document.getElementById("rigAngleOut").textContent = rig.show && rig.drop ? fmt(rig.angle,0)+"°" : "–";
@@ -304,6 +308,8 @@ function update(){
   let color, dot, label, sub, barColor;
   if(sum<=0){
     color="var(--muted-dim)"; label="Aguardando dados"; sub="Informe o peso da carga para calcular"; barColor="var(--line)";
+  } else if(ventoAlto){
+    color="var(--danger)"; label="Operação insegura"; sub=`Vento de ${fmt(vento)} m/s acima do limite de ${fmt(LIMITE_VENTO_MS)} m/s.`; barColor="var(--danger)";
   } else if(irreal){
     color="var(--danger)"; label="Carga fora da realidade"; sub=`A soma das cargas (${fmt(sum/1000,1)} t) passa da capacidade nominal do ${m.label} (${fmt(m.capNominal/1000,0)} t). Confira o peso informado.`; barColor="var(--danger)";
   } else if(pct<=80){
@@ -315,7 +321,7 @@ function update(){
   }
   const statusBox=document.getElementById("statusBox");
   statusBox.style.borderColor = sum<=0 ? "var(--line)" : color;
-  statusBox.style.background = sum<=0 ? "var(--panel)" : irreal ? "var(--danger-bg)" : (pct<=80?"var(--safe-bg)":pct<=100?"var(--warn-bg)":"var(--danger-bg)");
+  statusBox.style.background = sum<=0 ? "var(--panel)" : (irreal||ventoAlto) ? "var(--danger-bg)" : (pct<=80?"var(--safe-bg)":pct<=100?"var(--warn-bg)":"var(--danger-bg)");
   document.getElementById("statusDot").style.background=color;
   document.getElementById("statusMain").textContent=label;
   document.getElementById("statusMain").style.color = sum<=0 ? "var(--text)" : color;
@@ -328,6 +334,7 @@ function update(){
 
   drawCrane(geo, quad, rig);
   update3D(rig);
+  scheduleApiCheck();
   render3D();
 }
 
@@ -453,6 +460,7 @@ document.getElementById("reverseBtn").addEventListener("click", ()=>{
     return;
   }
   noneBox.textContent=NONE_MSG;
+  apiReverse(w);
   const best=solveMaxRadiusForWeight(w);
   if(!best){ resBox.style.display="none"; noneBox.style.display="block"; return; }
   noneBox.style.display="none"; resBox.style.display="block";
@@ -480,7 +488,7 @@ document.getElementById("reverseWeight").addEventListener("input", ()=>{
 angleSlider.addEventListener("input", ()=>{ angle=Number(angleSlider.value); update(); });
 lenSlider.addEventListener("input", ()=>{ len=pctToLen(Number(lenSlider.value)); hideReverse(); update(); });
 slewSlider.addEventListener("input", ()=>{ slew=Number(slewSlider.value); hideReverse(); update(); });
-["loadCarga","loadLingada","loadCabo","dimC","dimL","dimA","rigDist","rigLinga"].forEach(id=>document.getElementById(id).addEventListener("input", update));
+["loadCarga","loadLingada","loadCabo","loadVento","dimC","dimL","dimA","rigDist","rigLinga"].forEach(id=>document.getElementById(id).addEventListener("input", update));
 document.getElementById("rigPernas").addEventListener("change", update);
 document.getElementById("loadBalancim").addEventListener("input", ()=>{
   const v=Number(document.getElementById("loadBalancim").value)||0;
@@ -742,4 +750,134 @@ function render3D(){
   three3d.renderer.render(three3d.scene, three3d.camera);
 }
 
+/* ---------- integração com a API (Flask) ----------
+   Se a página for servida pelo app.py, as rotas /api/* respondem: os limites
+   de cada guindaste vêm do banco, cada mudança é validada pelo servidor
+   (RN01–RN08) e dá para salvar a simulação e ver o histórico. Sem servidor
+   (ex.: abrir o index.html direto), tudo continua funcionando só no local. */
+const API = { online:false, ids:{}, labels:{}, usuarioId:2 }; // TODO: usar o usuário logado quando houver autenticação (seed: 2 = "Operador Teste")
+const API_MODEL_KEYS = { "TM 130":"TM130", "MD 300L":"MD300L" };
+const STATUS_LABEL = { seguro:"seguro", proximo_limite:"próximo do limite", inseguro:"inseguro" };
+
+async function apiInit(){
+  try{
+    const r = await fetch("api/guindastes");
+    if(!r.ok) throw new Error(r.status);
+    const lista = await r.json();
+    lista.forEach(g=>{
+      const k = API_MODEL_KEYS[g.modelo];
+      API.labels[g.id] = g.modelo;
+      if(!k) return;
+      API.ids[k] = g.id;
+      const m = MODELS[k];
+      m.capNominal = g.capacidade_maxima_kg;
+      m.minLen = g.comprimento_lanca_min_m; m.maxLen = g.comprimento_lanca_max_m;
+      m.minAngle = g.angulo_min_graus;      m.maxAngle = g.angulo_max_graus;
+    });
+    API.online = true;
+  }catch(e){
+    API.online = false;
+  }
+  document.getElementById("saveBtn").disabled = !API.online;
+  onModelChange();
+  loadHistory();
+}
+
+function apiPayload(salvar){
+  const m = MODELS[current];
+  const num = id => Number(document.getElementById(id).value)||0;
+  const ventoTxt = document.getElementById("loadVento").value;
+  const rig = readRigging();
+  return {
+    guindaste_id: API.ids[current],
+    comprimento_lanca_m: +len.toFixed(2),
+    angulo_graus: +angle.toFixed(2),
+    angulo_giro_graus: slew,
+    raio_operacao_m: +computeGeometry().radius.toFixed(2),
+    peso_carga_kg: num("loadCarga"),
+    massa_lingada_kg: num("loadLingada"),
+    massa_cabo_kg: num("loadCabo"),
+    usa_balancim: document.getElementById("useBalancim").checked,
+    massa_balancim_kg: num("loadBalancim"),
+    velocidade_vento_ms: ventoTxt==="" ? null : Number(ventoTxt),
+    usa_jib: m.jib && document.getElementById("useJib").checked,
+    comprimento_carga_m: rig.C || null, largura_carga_m: rig.L || null, altura_carga_m: rig.A || null,
+    usuario_id: API.usuarioId,
+    salvar: !!salvar,
+  };
+}
+
+async function postJSON(url, body){
+  const r = await fetch(url, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.erro || ("HTTP "+r.status));
+  return j;
+}
+
+function setApiLine(el, text, cls){ el.textContent = text; el.className = "apiLine "+cls; }
+
+let apiTimer = null, apiSeq = 0;
+function scheduleApiCheck(){ clearTimeout(apiTimer); apiTimer = setTimeout(apiCheck, 250); }
+
+async function apiCheck(){
+  const line = document.getElementById("apiLine");
+  if(!API.online){ setApiLine(line, "Servidor offline — validação só local.", "off"); return; }
+  if(!API.ids[current]){ setApiLine(line, `${MODELS[current].label} não está cadastrado no banco.`, "danger"); return; }
+  if((Number(document.getElementById("loadCarga").value)||0) <= 0){ setApiLine(line, "Servidor conectado — informe o peso da carga.", "off"); return; }
+  const seq = ++apiSeq;
+  try{
+    const j = await postJSON("api/simular", apiPayload(false));
+    if(seq !== apiSeq) return; // chegou uma resposta mais nova
+    setApiLine(line, `Servidor: ${STATUS_LABEL[j.status]} — ${fmt(j.percentual_utilizado,1)}% de ${fmt(j.capacidade_disponivel_kg,0)} kg. ${j.mensagem}`, j.status);
+  }catch(e){
+    if(seq === apiSeq) setApiLine(line, "Servidor: "+e.message, "danger");
+  }
+}
+
+document.getElementById("saveBtn").addEventListener("click", async ()=>{
+  const line = document.getElementById("apiLine");
+  if((Number(document.getElementById("loadCarga").value)||0) <= 0){ setApiLine(line, "Informe o peso da carga antes de salvar.", "danger"); return; }
+  try{
+    const j = await postJSON("api/simular", apiPayload(true));
+    setApiLine(line, `Simulação #${j.simulacao_id} salva (${STATUS_LABEL[j.status]}).`, j.status);
+    loadHistory();
+  }catch(e){
+    setApiLine(line, "Não foi possível salvar: "+e.message, "danger");
+  }
+});
+
+async function apiReverse(peso){
+  const line = document.getElementById("revApiLine");
+  if(!API.online || !API.ids[current]){ line.style.display="none"; return; }
+  line.style.display = "";
+  try{
+    const j = await postJSON("api/simular/alcance-maximo", {
+      guindaste_id: API.ids[current], comprimento_lanca_m: +len.toFixed(2), angulo_giro_graus: slew, peso_kg: peso });
+    if(!j.encontrado){ setApiLine(line, "Servidor: "+j.mensagem, "danger"); return; }
+    const p = j.ponto;
+    const onde = p.raio_m!==null ? `raio ${fmt(p.raio_m)} m` : `ângulo ${fmt(p.angulo_graus,0)}°`;
+    setApiLine(line, `Servidor (tabela do banco): maior alcance com ${onde}, capacidade ${fmt(p.capacidade_kg,0)} kg.`, "seguro");
+  }catch(e){
+    setApiLine(line, "Servidor: "+e.message, "danger");
+  }
+}
+
+async function loadHistory(){
+  const table = document.getElementById("histTable"), note = document.getElementById("histNote");
+  if(!API.online){ table.innerHTML = ""; note.textContent = "Histórico disponível apenas com o servidor rodando (python app.py)."; return; }
+  try{
+    const r = await fetch("api/historico/"+API.usuarioId);
+    const lista = await r.json();
+    note.textContent = lista.length ? "" : "Nenhuma simulação salva ainda — use \"Salvar simulação\" na aba Simulação.";
+    table.innerHTML = lista.length ? `<tr><th>#</th><th>Data</th><th>Guindaste</th><th>Lança</th><th>Ângulo</th><th>Raio</th><th>Quadrante</th><th>Uso</th><th>Status</th></tr>` +
+      lista.map(s=>`<tr><td>${s.id}</td><td>${s.data_simulacao ? new Date(s.data_simulacao).toLocaleString("pt-BR") : "–"}</td>
+        <td>${API.labels[s.guindaste_id]||s.guindaste_id}</td><td>${fmt(s.comprimento_lanca_m)} m</td><td>${fmt(s.angulo_graus,0)}°</td>
+        <td>${fmt(s.raio_operacao_m)} m</td><td>${s.quadrante==="frontal"?"frontal":"lateral/tras."}</td>
+        <td>${s.percentual_utilizado!=null ? fmt(s.percentual_utilizado,1)+"%" : "–"}</td><td>${STATUS_LABEL[s.status]||"–"}</td></tr>`).join("") : "";
+  }catch(e){
+    note.textContent = "Erro ao carregar o histórico: "+e.message;
+  }
+}
+
 onModelChange();
+apiInit();

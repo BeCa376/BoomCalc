@@ -25,6 +25,7 @@
   <button class="tabbtn active" data-tab="sim">Simulação</button>
   <button class="tabbtn" data-tab="reverse">Alcance máximo</button>
   <button class="tabbtn" data-tab="spec">Ficha técnica</button>
+  <button class="tabbtn" data-tab="hist">Histórico</button>
 </div>
 
 <div class="layout">
@@ -89,6 +90,7 @@
         <div class="field"><label>Massa da lingada (kg)</label><input type="number" id="loadLingada" value="0" min="0"></div>
         <div class="field"><label>Massa do cabo de aço (kg)</label><input type="number" id="loadCabo" value="0" min="0"></div>
         <div class="field"><label>Massa do balancim (kg)</label><input type="number" id="loadBalancim" value="0" min="0"></div>
+        <div class="field"><label>Vento (m/s)</label><input type="number" id="loadVento" min="0" step="0.1" placeholder="não informado"></div>
       </div>
       <div class="checkRow" id="jibRow"><input type="checkbox" id="useJib"><label for="useJib">Usar JIB</label></div>
       <div class="checkRow"><input type="checkbox" id="useBalancim"><label for="useBalancim">Usar balancim</label></div>
@@ -129,6 +131,7 @@
           </div>
           <button class="btnSecondary" id="revGoBtn" style="margin-top:14px;">Mover a lança para essa posição →</button>
         </div>
+        <div class="apiLine" id="revApiLine" style="display:none;"></div>
         <div id="reverseNone" style="display:none; color:var(--danger); font-size:13px; margin-top:14px; font-weight:500;">
           Nenhum ângulo, no comprimento de lança atual, suporta esse peso com segurança. Reduza o comprimento da lança ou o peso.
         </div>
@@ -140,6 +143,13 @@
       <p class="sectionTitle">Especificações do modelo</p>
       <div class="specGrid" id="specGrid"></div>
       <div id="approxNote"></div>
+    </div>
+
+    <!-- TAB: HISTÓRICO -->
+    <div class="panel" id="tab-hist">
+      <p class="sectionTitle">Simulações salvas</p>
+      <div class="histWrap"><table class="histTable" id="histTable"></table></div>
+      <p class="footNote" id="histNote"></p>
     </div>
 
   </div>
@@ -170,6 +180,8 @@
       <div class="sub" id="statusSub">Informe o peso da carga para calcular</div>
       <div class="meter"><div class="meterFill" id="barFill" style="width:0%"></div></div>
     </div>
+    <div class="apiLine off" id="apiLine">Conectando ao servidor…</div>
+    <button class="btnSecondary" id="saveBtn" style="margin-top:8px; width:100%;" disabled>Salvar simulação</button>
     <div class="rigNote" id="rigNote" style="display:none;"></div>
   </div>
 </div>

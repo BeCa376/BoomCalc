@@ -195,6 +195,15 @@
   .rigNote{margin-top:8px; padding:6px 8px; border-radius:var(--radius-sm); font-size:9.5px; line-height:1.4;}
   .rigNote.warn{background:var(--warn-bg); color:var(--warn); border:1px solid var(--warn);}
   .rigNote.danger{background:var(--danger-bg); color:var(--danger); border:1px solid var(--danger);}
+  .apiLine{margin-top:8px; padding:6px 8px; border-radius:var(--radius-sm); font-size:9.5px; line-height:1.4; border:1px solid var(--line); color:var(--muted);}
+  .apiLine.seguro{border-color:var(--safe); color:var(--safe);}
+  .apiLine.proximo_limite{border-color:var(--warn); color:var(--warn);}
+  .apiLine.inseguro, .apiLine.danger{border-color:var(--danger); color:var(--danger);}
+  .histWrap{overflow:auto; min-height:0; flex:1;}
+  .histTable{width:100%; border-collapse:collapse; font-size:10px; font-family:var(--mono);}
+  .histTable th{text-align:left; color:var(--muted); font-weight:500; font-family:var(--sans); padding:4px 6px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg);}
+  .histTable td{padding:4px 6px; border-bottom:1px solid var(--line);}
+  @media (min-width:821px){ .loadsGrid:not(.dims){grid-template-columns:repeat(5,minmax(0,1fr));} }
   input.invalid{border-color:var(--danger) !important; color:var(--danger);}
   .stage3d{
     border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden;
