@@ -205,7 +205,7 @@
   .histTable{width:100%; border-collapse:collapse; font-size:10px; font-family:var(--mono);}
   .histTable th{text-align:left; color:var(--muted); font-weight:500; font-family:var(--sans); padding:4px 6px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg);}
   .histTable td{padding:4px 6px; border-bottom:1px solid var(--line);}
-  @media (min-width:821px){ .loadsGrid:not(.dims){grid-template-columns:repeat(5,minmax(0,1fr));} }
+  @media (min-width:821px){ .loadsGrid:not(.dims){grid-template-columns:repeat(6,minmax(0,1fr));} }
   input.invalid{border-color:var(--danger) !important; color:var(--danger);}
   .stage3d{
     border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden;
@@ -241,6 +241,24 @@
   .objActions{display:flex; gap:6px; align-items:center; margin-top:6px; flex-wrap:wrap;}
   .objStatus{font-size:9.5px; color:var(--muted); flex:1; min-width:180px;}
   .objStatus.ok{color:var(--safe);} .objStatus.warn{color:var(--warn);} .objStatus.bad{color:var(--danger);}
+
+  /* ---------- login / usuário ---------- */
+  .userBox{display:flex; gap:6px; align-items:center; font-size:9.5px; color:var(--muted); margin-left:auto; white-space:nowrap;}
+  .userBox a, .userBox button{font-family:var(--sans); font-size:9.5px; color:var(--steel); background:none; border:none; cursor:pointer; padding:0; text-decoration:none;}
+  .userBox b{color:var(--text); font-weight:500;}
+  .modalBack{position:fixed; inset:0; background:rgba(0,0,0,0.55); display:flex; align-items:center; justify-content:center; z-index:50;}
+  .modalBack[hidden]{display:none;}
+  .modalCard{background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-md); padding:14px; width:min(320px, 92vw);}
+  .modalCard input[type=text], .modalCard input[type=password]{width:100%; padding:5px 7px; border-radius:var(--radius-sm); border:1px solid var(--line); background:var(--panel-alt); color:var(--text); font-size:11px;}
+  .modalErr{color:var(--danger); font-size:10px; min-height:14px; margin-top:6px;}
+  .modalBtns{display:flex; justify-content:flex-end; gap:6px; margin-top:6px;}
+
+  /* ---------- acessórios ---------- */
+  .accRow{display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:6px; font-size:9.5px; color:var(--muted); align-items:center; flex:0 0 auto;}
+  .accRow label{display:flex; align-items:center; gap:4px; cursor:pointer;}
+  .accRow input{accent-color:var(--accent);}
+  .accRow .hint{color:var(--muted-dim);}
+  .histTable a{color:var(--steel); margin-right:6px;}
 
   /* telas estreitas: a página rola em vez de espremer tudo numa tela só */
   @media (max-width:820px){

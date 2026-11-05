@@ -246,6 +246,18 @@ function computeGeometry(){
   return {radius,height,jibOn,jibLen:jl};
 }
 
+/* Acessórios marcados (vêm do banco): somam massa na carga quando não estão
+   já inclusos na tabela e reduzem a capacidade pelo fator de redução (RN07). */
+let ACESSORIOS = [];
+function accessoryEffect(){
+  let massa=0, fator=1; const ids=[];
+  document.querySelectorAll("#accRow input[data-acc]:checked").forEach(cb=>{
+    const a=ACESSORIOS.find(x=>x.id===Number(cb.dataset.acc)); if(!a) return;
+    ids.push(a.id); if(a.soma_na_carga) massa+=a.massa_kg; fator*=a.fator_reducao;
+  });
+  return {massa, fator, ids};
+}
+
 function computeCapacity(){
   const m=MODELS[current];
   const quad=quadrantFromSlew(slew);
@@ -253,7 +265,7 @@ function computeCapacity(){
   let cap;
   if(current==="TM130"){ cap=interp(m.zones[quad].points, angle); }
   else{ cap=m.capFn(len, geo.radius, quad); }
-  return {cap, quad, geo};
+  return {cap: cap*accessoryEffect().fator, quad, geo};
 }
 
 function update(){
@@ -279,7 +291,8 @@ function update(){
   const cabo=Number(document.getElementById("loadCabo").value)||0;
   const balOn=document.getElementById("useBalancim").checked;
   const bal=balOn ? (Number(document.getElementById("loadBalancim").value)||0) : 0;
-  const sum=carga+lingada+cabo+bal;
+  const acc=accessoryEffect();
+  const sum=carga+lingada+cabo+bal+acc.massa;
   const pct=cap>0 ? (sum/cap)*100 : 0;
   /* Carga acima da capacidade nominal do equipamento não é uma operação
      "insegura": é um dado irreal (ex.: 250 t num guindaste de 30 t). */
@@ -293,9 +306,11 @@ function update(){
   document.getElementById("rigTensionOut").textContent = rig.show && isFinite(rig.tension) && carga>0 ? fmt(rig.tension,0)+" kg" : "–";
   document.getElementById("rigBottomOut").textContent = rig.show ? fmt(rig.bottomHeight)+" m" : "–";
   const note=document.getElementById("rigNote");
-  const msgs=[...rig.problems, ...rig.warnings];
-  note.style.display = rig.show && msgs.length ? "" : "none";
-  note.className = "rigNote "+(rig.problems.length ? "danger" : "warn");
+  const msgs = rig.show ? [...rig.problems, ...rig.warnings] : [];
+  if(document.getElementById("terreno").value==="mole")
+    msgs.push("Terreno mole: apoie as patolas em pranchões/placas e confirme a capacidade do solo (regra de redução ainda não definida).");
+  note.style.display = msgs.length ? "" : "none";
+  note.className = "rigNote "+(rig.show && rig.problems.length ? "danger" : "warn");
   note.innerHTML = msgs.map(t=>"• "+t).join("<br>");
   document.getElementById("loadCarga").classList.toggle("invalid", irreal);
 
@@ -446,7 +461,7 @@ function solveMaxRadiusForWeight(weight){
       const jRad=jibAbsRad(radAngle);
       radius+=jl*Math.cos(jRad); height+=jl*Math.sin(jRad);
     }
-    let cap = current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(len, radius, quad);
+    let cap = (current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(len, radius, quad)) * accessoryEffect().fator;
     if(cap>=weight){ if(!best || radius>best.radius){ best={angle:a, radius, height, cap}; } }
   }
   return best;
@@ -494,6 +509,8 @@ lenSlider.addEventListener("input", ()=>{ len=pctToLen(Number(lenSlider.value));
 slewSlider.addEventListener("input", ()=>{ slew=Number(slewSlider.value); hideReverse(); update(); });
 ["loadCarga","loadLingada","loadCabo","loadVento","dimC","dimL","dimA","rigDist","rigLinga"].forEach(id=>document.getElementById(id).addEventListener("input", update));
 document.getElementById("rigPernas").addEventListener("change", update);
+document.getElementById("terreno").addEventListener("change", update);
+document.getElementById("accRow").addEventListener("change", update);
 document.getElementById("loadBalancim").addEventListener("input", ()=>{
   const v=Number(document.getElementById("loadBalancim").value)||0;
   if(v>0) document.getElementById("useBalancim").checked=true;
@@ -680,7 +697,7 @@ function init3D(){
       const hit = new THREE.Vector3();
       if(raycaster.ray.intersectPlane(new THREE.Plane(new THREE.Vector3(0,1,0), 0), hit)){
         const o = sceneObjects.find(x=>x.id===draggingObj3D.id);
-        if(o){ o.x = hit.x+draggingObj3D.dx; o.z = hit.z+draggingObj3D.dz; update(); }
+        if(o){ o.x = hit.x+draggingObj3D.dx; o.z = hit.z+draggingObj3D.dz; persistObj(o); update(); }
       }
       return;
     }
@@ -825,7 +842,7 @@ function render3D(){
    de cada guindaste vêm do banco, cada mudança é validada pelo servidor
    (RN01–RN08) e dá para salvar a simulação e ver o histórico. Sem servidor
    (ex.: abrir o index.html direto), tudo continua funcionando só no local. */
-const API = { online:false, ids:{}, labels:{}, usuarioId:2 }; // TODO: usar o usuário logado quando houver autenticação (seed: 2 = "Operador Teste")
+const API = { online:false, ids:{}, labels:{}, user:null };
 const API_MODEL_KEYS = { "TM 130":"TM130", "MD 300L":"MD300L" };
 const STATUS_LABEL = { seguro:"seguro", proximo_limite:"próximo do limite", inseguro:"inseguro" };
 
@@ -848,10 +865,61 @@ async function apiInit(){
   }catch(e){
     API.online = false;
   }
-  document.getElementById("saveBtn").disabled = !API.online;
+  if(API.online){
+    try{ ACESSORIOS = await (await fetch("api/acessorios")).json(); }catch(e){ ACESSORIOS = []; }
+    try{ API.user = await (await fetch("api/auth/me")).json(); }catch(e){ API.user = null; }
+  }
+  renderAccessories();
   onModelChange();
-  loadHistory();
+  onAuthChange();
 }
+
+function renderAccessories(){
+  const row = document.getElementById("accRow");
+  if(!API.online){ row.innerHTML = `<span class="hint">Acessórios: disponíveis com o servidor rodando.</span>`; return; }
+  row.innerHTML = `<span>Acessórios:</span>` + ACESSORIOS.map(a=>{
+    const info = [a.soma_na_carga ? `${fmt(a.massa_kg,0)} kg` : "já incluso na tabela", a.fator_reducao<1 ? `capacidade ×${fmt(a.fator_reducao,3)}` : ""].filter(Boolean).join(", ");
+    return `<label title="${(a.observacoes||"").replace(/"/g,"&quot;")}"><input type="checkbox" data-acc="${a.id}">${a.nome} <span class="hint">(${info})</span></label>`;
+  }).join("");
+}
+
+/* ---- login ---- */
+function onAuthChange(){
+  const box = document.getElementById("userBox");
+  const u = API.user;
+  if(!API.online){ box.innerHTML = ""; }
+  else if(!u){ box.innerHTML = `<button id="loginOpen">Entrar</button>`; document.getElementById("loginOpen").onclick = openLogin; }
+  else {
+    box.innerHTML = `<b>${u.nome}</b>${u.papel==="administrador" ? ` · <a href="admin">Cadastros</a>` : ""} · <button id="logoutBtn">Sair</button>`;
+    document.getElementById("logoutBtn").onclick = async ()=>{
+      await fetch("api/auth/logout", {method:"POST"});
+      API.user = null; forgetServerObjects(); onAuthChange();
+    };
+  }
+  const save = document.getElementById("saveBtn");
+  save.disabled = !(API.online && u);
+  save.title = !API.online ? "Servidor offline" : !u ? "Entre para salvar simulações" : "";
+  loadHistory();
+  if(API.online && u) loadObjectsFromServer();
+  scheduleApiCheck();
+}
+function openLogin(){
+  document.getElementById("loginErr").textContent = "";
+  document.getElementById("loginModal").hidden = false;
+  document.getElementById("loginUser").focus();
+}
+document.getElementById("loginCancel").addEventListener("click", ()=>{ document.getElementById("loginModal").hidden = true; });
+document.getElementById("loginForm").addEventListener("submit", async e=>{
+  e.preventDefault();
+  try{
+    API.user = await postJSON("api/auth/login", { login: document.getElementById("loginUser").value, senha: document.getElementById("loginPass").value });
+    document.getElementById("loginPass").value = "";
+    document.getElementById("loginModal").hidden = true;
+    onAuthChange();
+  }catch(err){
+    document.getElementById("loginErr").textContent = err.message;
+  }
+});
 
 function apiPayload(salvar){
   const m = MODELS[current];
@@ -872,7 +940,8 @@ function apiPayload(salvar){
     velocidade_vento_ms: ventoTxt==="" ? null : Number(ventoTxt),
     usa_jib: m.jib && document.getElementById("useJib").checked,
     comprimento_carga_m: rig.C || null, largura_carga_m: rig.L || null, altura_carga_m: rig.A || null,
-    usuario_id: API.usuarioId,
+    acessorio_ids: accessoryEffect().ids,
+    condicao_terreno: document.getElementById("terreno").value,
     salvar: !!salvar,
   };
 }
@@ -898,7 +967,8 @@ async function apiCheck(){
   try{
     const j = await postJSON("api/simular", apiPayload(false));
     if(seq !== apiSeq) return; // chegou uma resposta mais nova
-    setApiLine(line, `Servidor: ${STATUS_LABEL[j.status]} — ${fmt(j.percentual_utilizado,1)}% de ${fmt(j.capacidade_disponivel_kg,0)} kg. ${j.mensagem}`, j.status);
+    const avisos = (j.avisos||[]).length ? " Aviso: "+j.avisos.join(" ") : "";
+    setApiLine(line, `Servidor: ${STATUS_LABEL[j.status]} — ${fmt(j.percentual_utilizado,1)}% de ${fmt(j.capacidade_disponivel_kg,0)} kg. ${j.mensagem}${avisos}`, j.status);
   }catch(e){
     if(seq === apiSeq) setApiLine(line, "Servidor: "+e.message, "danger");
   }
@@ -935,15 +1005,18 @@ async function apiReverse(peso){
 async function loadHistory(){
   const table = document.getElementById("histTable"), note = document.getElementById("histNote");
   if(!API.online){ table.innerHTML = ""; note.textContent = "Histórico disponível apenas com o servidor rodando (python app.py)."; return; }
+  if(!API.user){ table.innerHTML = ""; note.textContent = "Entre (canto superior direito) para salvar simulações e ver o seu histórico."; return; }
   try{
-    const r = await fetch("api/historico/"+API.usuarioId);
+    const r = await fetch("api/historico");
     const lista = await r.json();
+    if(!r.ok) throw new Error(lista.erro || r.status);
     note.textContent = lista.length ? "" : "Nenhuma simulação salva ainda — use \"Salvar simulação\" na aba Simulação.";
-    table.innerHTML = lista.length ? `<tr><th>#</th><th>Data</th><th>Guindaste</th><th>Lança</th><th>Ângulo</th><th>Raio</th><th>Quadrante</th><th>Uso</th><th>Status</th></tr>` +
+    table.innerHTML = lista.length ? `<tr><th>#</th><th>Data</th><th>Guindaste</th><th>Lança</th><th>Ângulo</th><th>Raio</th><th>Quadrante</th><th>Uso</th><th>Status</th><th>Relatório</th></tr>` +
       lista.map(s=>`<tr><td>${s.id}</td><td>${s.data_simulacao ? new Date(s.data_simulacao).toLocaleString("pt-BR") : "–"}</td>
         <td>${API.labels[s.guindaste_id]||s.guindaste_id}</td><td>${fmt(s.comprimento_lanca_m)} m</td><td>${fmt(s.angulo_graus,0)}°</td>
         <td>${fmt(s.raio_operacao_m)} m</td><td>${s.quadrante==="frontal"?"frontal":"lateral/tras."}</td>
-        <td>${s.percentual_utilizado!=null ? fmt(s.percentual_utilizado,1)+"%" : "–"}</td><td>${STATUS_LABEL[s.status]||"–"}</td></tr>`).join("") : "";
+        <td>${s.percentual_utilizado!=null ? fmt(s.percentual_utilizado,1)+"%" : "–"}</td><td>${STATUS_LABEL[s.status]||"–"}</td>
+        <td><a href="api/simulacoes/${s.id}/relatorio?formato=pdf" download>PDF</a><a href="api/simulacoes/${s.id}/relatorio?formato=csv" download>CSV</a></td></tr>`).join("") : "";
   }catch(e){
     note.textContent = "Erro ao carregar o histórico: "+e.message;
   }
@@ -991,7 +1064,8 @@ function geoFor(L, a){
 }
 function capFor(L, a, quad){
   const m = MODELS[current];
-  return current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(L, geoFor(L,a).radius, quad);
+  const cap = current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(L, geoFor(L,a).radius, quad);
+  return cap * accessoryEffect().fator;
 }
 /* ângulo da lança que leva o gancho ao raio R com comprimento L (o raio cai com o ângulo) */
 function solveAngleForRadius(L, R){
@@ -1007,7 +1081,7 @@ function solveAngleForRadius(L, R){
 
 function rigMasses(){
   const num = id => Number(document.getElementById(id).value)||0;
-  return num("loadLingada") + num("loadCabo") + (document.getElementById("useBalancim").checked ? num("loadBalancim") : 0);
+  return num("loadLingada") + num("loadCabo") + (document.getElementById("useBalancim").checked ? num("loadBalancim") : 0) + accessoryEffect().massa;
 }
 
 /* melhor configuração para içar o objeto: mantém a lança atual se der; senão
@@ -1050,7 +1124,8 @@ function hookGround(){
 function syncAttachedFromFields(){
   const o = attachedObj(); if(!o) return;
   const num = id => Number(document.getElementById(id).value)||0;
-  o.peso = num("loadCarga"); o.C = num("dimC") || o.C; o.L = num("dimL") || o.L; o.A = num("dimA") || o.A;
+  const novo = { peso:num("loadCarga"), C:num("dimC")||o.C, L:num("dimL")||o.L, A:num("dimA")||o.A };
+  if(novo.peso!==o.peso || novo.C!==o.C || novo.L!==o.L || novo.A!==o.A){ Object.assign(o, novo); persistObj(o); }
 }
 function writeFieldsFromObj(o){
   document.getElementById("loadCarga").value = o.peso;
@@ -1097,6 +1172,7 @@ function dropObj(){
   const h = hookGround();
   o.x = h.x; o.z = h.z; o.rot = slew;
   attachedObjId = null;
+  persistObj(o, true);
   document.getElementById("loadCarga").value = 0;
   update();
 }
@@ -1135,6 +1211,45 @@ function refreshObjUI(fillFields){
   else { const st = objState(o); status.textContent = st.text; status.className = "objStatus "+(st.state==="far"?"bad":st.state); }
 }
 
+/* ---- persistência dos objetos (logado: salvos no banco, por usuário) ---- */
+const objTimers = {};
+function objToApi(o){
+  return { nome:o.nome, peso:o.peso, C:o.C, L:o.L, A:o.A, x:+o.x.toFixed(2), z:+o.z.toFixed(2), rot:+(o.rot||0).toFixed(1) };
+}
+function persistObj(o, imediato){
+  if(!API.online || !API.user || !o) return;
+  clearTimeout(objTimers[o.id]);
+  const run = async ()=>{
+    try{
+      if(!o.dbId){
+        if(!o._post) o._post = postJSON("api/objetos", objToApi(o)).then(r=>{ o.dbId = r.id; });
+        await o._post;
+      }
+      const r = await fetch("api/objetos/"+o.dbId, {method:"PUT", headers:{"Content-Type":"application/json"}, body:JSON.stringify(objToApi(o))});
+      if(!r.ok) throw new Error((await r.json().catch(()=>({}))).erro || r.status);
+    }catch(e){
+      const st = document.getElementById("objStatus");
+      st.textContent = "Não foi possível salvar o objeto: "+e.message; st.className = "objStatus bad";
+    }
+  };
+  if(imediato) run(); else objTimers[o.id] = setTimeout(run, 500);
+}
+async function loadObjectsFromServer(){
+  try{
+    const r = await fetch("api/objetos"); if(!r.ok) return;
+    const lista = await r.json();
+    if(lista.length){
+      attachedObjId = null;
+      sceneObjects = lista.map(d=>({ ...d, id: nextObjId++, dbId: d.id }));
+      selectedObjId = sceneObjects[0].id;
+    } else {
+      sceneObjects.forEach(o=>{ o.dbId = null; o._post = null; persistObj(o, true); }); // primeira vez: salva os exemplos
+    }
+    update(); refreshObjUI(true);
+  }catch(e){ /* sem servidor: segue só na tela */ }
+}
+function forgetServerObjects(){ sceneObjects.forEach(o=>{ o.dbId = null; o._post = null; }); }
+
 function onObjFieldInput(){
   const o = selectedObj(); if(!o) return;
   const num = (id,min=0) => Math.max(min, Number(document.getElementById(id).value)||0);
@@ -1142,6 +1257,7 @@ function onObjFieldInput(){
   o.peso = num("objPeso"); o.C = num("objC",0.1); o.L = num("objL",0.1); o.A = num("objA",0.1);
   if(o.id===attachedObjId) writeFieldsFromObj(o);
   else setObjPolar(o, num("objR"), Number(document.getElementById("objAz").value)||0);
+  persistObj(o);
   update();
 }
 ["objNome","objPeso","objC","objL","objA","objR","objAz"].forEach(id=>document.getElementById(id).addEventListener("input", onObjFieldInput));
@@ -1149,11 +1265,13 @@ document.getElementById("objAdd").addEventListener("click", ()=>{
   // novo objeto num ponto livre dentro do alcance atual
   const R = Math.max(4, Math.min(geoFor(len, minAngleCur()).radius*0.7, 10));
   const o = addObj({ nome:"Objeto "+nextObjId, R, az: (sceneObjects.length*47)%360-180 });
+  persistObj(o, true);
   selectObj(o.id); update();
 });
 document.getElementById("objDel").addEventListener("click", ()=>{
   const o = selectedObj(); if(!o) return;
   if(o.id===attachedObjId){ attachedObjId = null; document.getElementById("loadCarga").value = 0; }
+  if(o.dbId && API.user) fetch("api/objetos/"+o.dbId, {method:"DELETE"});
   sceneObjects = sceneObjects.filter(x=>x.id!==o.id);
   selectedObjId = sceneObjects.length ? sceneObjects[0].id : null;
   update(); refreshObjUI(true);
@@ -1292,7 +1410,7 @@ document.getElementById("radarCanvas").addEventListener("click", e=>{
   if(hit){ selectObj(hit.id); update(); return; }
   // clicou num espaço vazio: move o objeto selecionado até lá
   const o = selectedObj();
-  if(o && o.id!==attachedObjId){ o.x = x; o.z = z; update(); refreshObjUI(true); }
+  if(o && o.id!==attachedObjId){ o.x = x; o.z = z; persistObj(o); update(); refreshObjUI(true); }
 });
 window.addEventListener("resize", drawRadar);
 

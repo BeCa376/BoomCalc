@@ -18,6 +18,7 @@
     <span class="sub">simulador de içamento</span>
   </div>
   <div class="modelSwitch" id="modelSwitch"></div>
+  <div class="userBox" id="userBox"></div>
   <div class="globalStatus" id="globalStatus"><span class="dot" style="background:var(--muted-dim)"></span>Sem carga informada</div>
 </div>
 
@@ -121,7 +122,10 @@
         <div class="field"><label>Massa do cabo de aço (kg)</label><input type="number" id="loadCabo" value="0" min="0"></div>
         <div class="field"><label>Massa do balancim (kg)</label><input type="number" id="loadBalancim" value="0" min="0"></div>
         <div class="field"><label>Vento (m/s)</label><input type="number" id="loadVento" min="0" step="0.1" placeholder="não informado"></div>
+        <div class="field"><label>Terreno</label>
+          <select id="terreno"><option value="nao_informado">Não informado</option><option value="firme">Firme</option><option value="mole">Mole</option></select></div>
       </div>
+      <div class="accRow" id="accRow"></div>
       <div class="checkRow" id="jibRow"><input type="checkbox" id="useJib"><label for="useJib">Usar JIB</label></div>
       <div class="checkRow"><input type="checkbox" id="useBalancim"><label for="useBalancim">Usar balancim</label></div>
 
@@ -214,6 +218,20 @@
     <button class="btnSecondary" id="saveBtn" style="margin-top:8px; width:100%;" disabled>Salvar simulação</button>
     <div class="rigNote" id="rigNote" style="display:none;"></div>
   </div>
+</div>
+
+<!-- login -->
+<div class="modalBack" id="loginModal" hidden>
+  <form class="modalCard" id="loginForm">
+    <p class="sectionTitle">Entrar</p>
+    <div class="field"><label for="loginUser">Login</label><input type="text" id="loginUser" autocomplete="username" required></div>
+    <div class="field" style="margin-top:6px;"><label for="loginPass">Senha</label><input type="password" id="loginPass" autocomplete="current-password" required></div>
+    <div class="modalErr" id="loginErr"></div>
+    <div class="modalBtns">
+      <button type="button" class="btnSecondary" id="loginCancel">Cancelar</button>
+      <button type="submit" class="btnPrimary">Entrar</button>
+    </div>
+  </form>
 </div>
 
 <script src="project/js/app.js"></script>
