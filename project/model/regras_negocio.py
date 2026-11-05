@@ -44,6 +44,12 @@ def avaliar_operacao(capacidade_kg, peso_carga, massa_lingada, massa_cabo,
     if usa_balancim:
         carga_total += (massa_balancim or 0)
 
+    if not capacidade_kg or capacidade_kg <= 0:
+        erros.append(
+            "RN05: não há tabela de capacidade cadastrada para este guindaste, "
+            "quadrante e comprimento de lança — operação não pode ser validada."
+        )
+
     alerta_vento = False
     if velocidade_vento is not None and velocidade_vento > limite_vento_ms:
         alerta_vento = True
