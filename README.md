@@ -70,6 +70,36 @@ python app.py
 ```
 
 Acesse `http://localhost:5000` — o Flask já serve o `index.html` da raiz.
+A tela de cadastros fica em `http://localhost:5000/admin`.
+
+> **Banco já criado numa versão anterior?** O `seed.sql` mudou (tabela
+> `objeto_cena`, coluna `acessorio.soma_na_carga`, `resultado.mensagem` como
+> TEXT e senhas com hash). Rode o script de novo num banco limpo
+> (`DROP DATABASE boomcalc;` antes) — ele recria tudo.
+
+### Usuários de teste
+
+O `seed.sql` cria dois usuários com senhas **de teste** (estão no comentário
+acima do `INSERT INTO usuario`):
+
+| Login | Papel | O que pode |
+|---|---|---|
+| `admin` | administrador | tudo + cadastros em `/admin` |
+| `operador` | operador | simular, salvar, histórico, objetos e relatórios |
+
+Troque as senhas em produção pela própria tela `/admin`.
+
+### Testes automatizados
+
+```bash
+pip install pytest
+python -m pytest tests
+```
+
+Os testes sobem o app com SQLite em memória, carregam os dados do
+`seed.sql` e cobrem as regras (RN01–RN08), login e permissões, cadastros,
+objetos e relatórios. Também conferem se as colunas do `seed.sql` batem com
+as entidades — o que pega divergência entre o script MySQL e o código.
 
 ## 3. Configuração do ambiente (.env)
 
@@ -101,7 +131,24 @@ Ou crie manualmente o arquivo `config/.env` preenchendo os valores necessários.
 - **Radar**: visão de cima com alcance, setor frontal, zonas de capacidade
   da configuração atual, lança e objetos. Clique num objeto para selecionar
   ou num espaço vazio para mover o objeto selecionado.
-- **Alcance máximo**, **Ficha técnica** e **Histórico**.
+- **Acessórios** (moitão, linga etc., vindos do banco): somam massa na carga
+  quando não estão já inclusos na tabela e reduzem a capacidade pelo fator
+  de redução cadastrado.
+- **Condição do terreno** (firme / mole / não informado): fica salva na
+  simulação e, se mole, a tela avisa para apoiar as patolas em pranchões.
+- **Login** (canto superior direito): salvar simulações, histórico, objetos
+  salvos no banco e relatórios exigem login; simular, não.
+- **Histórico** com **relatório em PDF ou CSV** de cada simulação salva (RF11).
+- **Alcance máximo** e **Ficha técnica**.
+
+### Cadastros (`/admin`, só administrador)
+
+- **Usuários**: criar, editar (nome, login, senha, papel) e remover.
+- **Acessórios**: massa, fator de redução e se soma na carga.
+- **Guindastes**: capacidade nominal, limites de lança e ângulo, JIB.
+- **Tabela de capacidade**: adicionar e remover pontos por quadrante e
+  comprimento de lança. É aqui que a empresa lança os valores **oficiais**
+  do catálogo (ex.: a área lateral/traseira do MD 300L, que ainda falta).
 
 ### Integração com a API
 
@@ -111,17 +158,29 @@ Servida pelo `app.py`, a página usa:
 - `POST /api/simular`: validação no servidor a cada mudança (RN01–RN08) e
   botão "Salvar simulação" (`salvar: true`)
 - `POST /api/simular/alcance-maximo`
-- `GET /api/historico/<usuario_id>`: aba Histórico
+- `GET /api/historico`: aba Histórico (do usuário logado)
+- `GET /api/simulacoes/<id>/relatorio?formato=pdf|csv`: relatório (RF11)
+- `GET /api/acessorios`, `POST /api/auth/login`, `POST /api/auth/logout`,
+  `GET /api/auth/me`
+- `GET|POST /api/objetos`, `PUT|DELETE /api/objetos/<id>`: objetos da cena
+- `/api/admin/...`: cadastros (usuários, acessórios, guindastes, tabela)
 
 Abrindo o `index.html` direto, sem servidor, tudo funciona só com o cálculo
-local e a tela avisa que está offline. Enquanto não houver login, as
-simulações são salvas no usuário 2 do seed ("Operador Teste").
+local e a tela avisa que está offline.
+
+> O cálculo **local** da tela (desenho, radar, cores dos objetos) usa as
+> curvas embutidas no `app.js`; a validação **oficial** é a do servidor, que
+> usa a tabela do banco e aparece abaixo do resultado. Se a empresa cadastrar
+> pontos novos em `/admin`, o servidor passa a usá-los na hora.
 
 ## Pendências / a confirmar com a empresa
 
-1. Limite de velocidade de vento (hoje é um valor fixo em `config.py`)
-2. Fatores de redução por acessório (moitão, lingas etc.)
-3. Condição de terreno (firme/mole) — ainda sem regra de cálculo definida
+1. Limite de velocidade de vento (hoje 12,5 m/s em `config.py`, ajustável pela
+   variável `LIMITE_VENTO_MS`)
+2. Valores dos fatores de redução por acessório — o cálculo já aplica o que
+   for cadastrado em `/admin`; hoje todos estão em 1,000 (sem redução)
+3. Condição de terreno (firme/mole) — já é registrada e gera aviso, mas
+   ainda não há regra de redução de capacidade definida
 4. Tabela completa e validada do **MD 300L** (a atual em `seed.sql` é
    aproximada, extraída de PDF — TM 130 está com mais confiança). Faltam,
    em especial, os pontos da área **lateral/traseira** do MD 300L: sem
@@ -130,6 +189,7 @@ simulações são salvas no usuário 2 do seed ("Operador Teste").
    pela tabela da lança principal no raio da ponta do JIB)
 6. TM 130: a tabela do seed só tem a lança de 12,4 m; a capacidade ainda
    não varia com o comprimento da lança
-7. Autenticação (Usuário/Operador/Administrador) e telas de cadastro
-8. Geração de relatório (RF11)
-9. Objetos da cena ainda não são salvos no banco (ficam só na tela)
+
+Os itens 4 a 6 dependem da tabela de carga **oficial** do fabricante (não há
+catálogo público do MD 300L nem do TM 130). Quando a empresa enviar, basta
+lançar os pontos em `/admin` → Tabela de capacidade.
