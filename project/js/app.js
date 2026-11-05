@@ -2,7 +2,7 @@ const MODELS = {
   TM130: {
     label:"TM 130", sub:"Lança 5,9–12,4 m · pé direito baixo",
     minLen:5.9, maxLen:12.4, minAngle:0, maxAngle:70,
-    baseHeight:1.6, baseOffset:1.2, approx:false, jib:false,
+    baseHeight:1.6, baseOffset:1.2, capNominal:26000, approx:false, jib:false,
     zones:{
       frontal:{points:[[0,3000],[10,3100],[20,3200],[30,3300],[35,3500],[55,3800],[70,3800]]},
       lateral:{points:[[0,2100],[10,2150],[20,2200],[30,2300],[35,2550],[40,2700],[45,2900],[50,3300],[55,3500],[60,3700],[65,3700],[70,3800]]}
@@ -13,7 +13,7 @@ const MODELS = {
   MD300L: {
     label:"MD 300L", sub:"Lança 10,5–32,1 m · com JIB",
     minLen:10.5, maxLen:32.1, minAngle:0, maxAngle:82,
-    baseHeight:2.0, baseOffset:1.5, approx:true, jib:true, jibLances:[9,15,20],
+    baseHeight:2.0, baseOffset:1.5, capNominal:30000, approx:true, jib:true, jibLances:[9,15,20],
     capFn:function(length, radius, quad){
       const anchors={10.5:[3.0,30000],14.1:[3.5,20000],17.7:[4.0,16000],21.3:[4.5,12000],24.9:[6.0,11500],28.5:[7.0,9000],32.1:[8.0,7000]};
       const lens=Object.keys(anchors).map(Number).sort((a,b)=>a-b);
@@ -236,6 +236,10 @@ function update(){
   const bal=balOn ? (Number(document.getElementById("loadBalancim").value)||0) : 0;
   const sum=carga+lingada+cabo+bal;
   const pct=cap>0 ? (sum/cap)*100 : 0;
+  /* Carga acima da capacidade nominal do equipamento não é uma operação
+     "insegura": é um dado irreal (ex.: 250 t num guindaste de 30 t). */
+  const irreal=sum>m.capNominal;
+  document.getElementById("loadCarga").classList.toggle("invalid", irreal);
 
   document.getElementById("quadTagOut").innerHTML = quad==="frontal"
     ? `<span class="quadPill f">FRONTAL</span>` : `<span class="quadPill l">LATERAL/TRAS.</span>`;
@@ -249,6 +253,8 @@ function update(){
   let color, dot, label, sub, barColor;
   if(sum<=0){
     color="var(--muted-dim)"; label="Aguardando dados"; sub="Informe o peso da carga para calcular"; barColor="var(--line)";
+  } else if(irreal){
+    color="var(--danger)"; label="Carga fora da realidade"; sub=`A soma das cargas (${fmt(sum/1000,1)} t) passa da capacidade nominal do ${m.label} (${fmt(m.capNominal/1000,0)} t). Confira o peso informado.`; barColor="var(--danger)";
   } else if(pct<=80){
     color="var(--safe)"; label="Operação segura"; sub=`Usando ${pct.toFixed(1)}% da capacidade disponível`; barColor="var(--safe)";
   } else if(pct<=100){
@@ -258,7 +264,7 @@ function update(){
   }
   const statusBox=document.getElementById("statusBox");
   statusBox.style.borderColor = sum<=0 ? "var(--line)" : color;
-  statusBox.style.background = sum<=0 ? "var(--panel)" : (pct<=80?"var(--safe-bg)":pct<=100?"var(--warn-bg)":"var(--danger-bg)");
+  statusBox.style.background = sum<=0 ? "var(--panel)" : irreal ? "var(--danger-bg)" : (pct<=80?"var(--safe-bg)":pct<=100?"var(--warn-bg)":"var(--danger-bg)");
   document.getElementById("statusDot").style.background=color;
   document.getElementById("statusMain").textContent=label;
   document.getElementById("statusMain").style.color = sum<=0 ? "var(--text)" : color;
@@ -362,10 +368,18 @@ function solveMaxRadiusForWeight(weight){
   return best;
 }
 
+const NONE_MSG=document.getElementById("reverseNone").textContent.trim();
 document.getElementById("reverseBtn").addEventListener("click", ()=>{
   const w=Number(document.getElementById("reverseWeight").value)||0;
   const resBox=document.getElementById("reverseResult"), noneBox=document.getElementById("reverseNone");
   if(w<=0){ resBox.style.display="none"; noneBox.style.display="none"; return; }
+  const m=MODELS[current];
+  if(w>m.capNominal){
+    resBox.style.display="none"; noneBox.style.display="block";
+    noneBox.textContent=`${fmt(w/1000,1)} t passa da capacidade nominal do ${m.label} (${fmt(m.capNominal/1000,0)} t). Confira o peso informado.`;
+    return;
+  }
+  noneBox.textContent=NONE_MSG;
   const best=solveMaxRadiusForWeight(w);
   if(!best){ resBox.style.display="none"; noneBox.style.display="block"; return; }
   noneBox.style.display="none"; resBox.style.display="block";

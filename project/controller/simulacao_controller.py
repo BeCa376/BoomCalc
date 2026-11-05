@@ -47,6 +47,7 @@ def simular():
     if faltando:
         return jsonify({"erro": f"RN03: campos obrigatórios ausentes: {', '.join(faltando)}"}), 400
 
+    guindaste = Guindaste.query.get_or_404(dados["guindaste_id"])
     quadrante = quadrante_por_giro(dados.get("angulo_giro_graus", 0))
     linhas = _linhas_mais_proximas(dados["guindaste_id"], quadrante, dados["comprimento_lanca_m"])
     capacidade = capacidade_disponivel(
@@ -63,6 +64,7 @@ def simular():
         velocidade_vento=dados.get("velocidade_vento_ms"),
         limite_vento_ms=current_app.config.get("LIMITE_VENTO_MS", 12.5),
         limite_percentual_alerta=current_app.config.get("LIMITE_PERCENTUAL_ALERTA", 80),
+        capacidade_nominal_kg=float(guindaste.capacidade_maxima_kg),
     )
     avaliacao["quadrante"] = quadrante
 

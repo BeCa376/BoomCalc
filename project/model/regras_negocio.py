@@ -34,7 +34,8 @@ def capacidade_disponivel(linhas_tabela, angulo=None, raio=None):
 
 def avaliar_operacao(capacidade_kg, peso_carga, massa_lingada, massa_cabo,
                       usa_balancim, massa_balancim, velocidade_vento=None,
-                      limite_vento_ms=12.5, limite_percentual_alerta=80):
+                      limite_vento_ms=12.5, limite_percentual_alerta=80,
+                      capacidade_nominal_kg=None):
     """Aplica RN01-RN04 e RN08 e devolve o dict pronto para virar Resultado."""
     erros = []
     if peso_carga is None or peso_carga <= 0:
@@ -43,6 +44,12 @@ def avaliar_operacao(capacidade_kg, peso_carga, massa_lingada, massa_cabo,
     carga_total = (peso_carga or 0) + (massa_lingada or 0) + (massa_cabo or 0)
     if usa_balancim:
         carga_total += (massa_balancim or 0)
+
+    if capacidade_nominal_kg and carga_total > capacidade_nominal_kg:
+        erros.append(
+            f"RN01: carga total ({carga_total:.0f} kg) acima da capacidade nominal "
+            f"do guindaste ({capacidade_nominal_kg:.0f} kg) — confira o peso informado."
+        )
 
     if not capacidade_kg or capacidade_kg <= 0:
         erros.append(

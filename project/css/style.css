@@ -190,6 +190,7 @@
   }
   .viewToggle button.active{background:rgba(242,169,0,0.14); color:var(--accent);}
   .jibPins button{flex:1; padding:4px 0;}
+  input.invalid{border-color:var(--danger) !important; color:var(--danger);}
   .stage3d{
     border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden;
     background:radial-gradient(circle at 30% 20%, #1c232b 0%, #12161b 75%);
