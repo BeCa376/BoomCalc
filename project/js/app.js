@@ -186,6 +186,47 @@ function interp(points,x){
   return points[points.length-1][1];
 }
 
+/* ---------- carga: dimensões e pontos de pega ----------
+   Distância vertical entre a ponta da lança/JIB e o gancho (moitão + cabo). */
+const HOOK_DROP_M=0.8;
+let lastRig=null; // última lingada calculada (usada ao reabrir o 3D)
+const SLING_MIN_ANGLE=45; // ângulo mínimo recomendado da linga com a horizontal
+
+function readRigging(){
+  const num=id=>Math.max(0, Number(document.getElementById(id).value)||0);
+  return { C:num("dimC"), L:num("dimL"), A:num("dimA"),
+           n:Number(document.getElementById("rigPernas").value)||1,
+           d:num("rigDist"), Ls:num("rigLinga") };
+}
+
+/* Geometria da lingada: a partir da altura da ponta (tipHeight) e do peso
+   pendurado, calcula ângulo das pernas, tração por perna e onde a carga fica. */
+function computeRigging(tipHeight, peso){
+  const r=readRigging();
+  const out={...r, ok:true, problems:[], warnings:[]};
+  if(r.C<=0 || r.L<=0 || r.A<=0){ out.ok=false; out.show=false; return out; }
+  out.show=true;
+  // distância horizontal do gancho até cada ponto de pega
+  const horiz = r.n===1 ? 0 : r.n===2 ? r.d/2 : Math.hypot(r.d/2, r.L/2);
+  if(r.n>1 && r.d>r.C) out.problems.push(`Distância entre pegas (${fmt(r.d)} m) maior que o comprimento da carga (${fmt(r.C)} m).`);
+  if(r.Ls<=horiz){
+    out.problems.push(`Linga curta demais: precisa ter mais que ${fmt(horiz,2)} m para alcançar os pontos de pega.`);
+    out.drop=0; out.angle=0; out.tension=Infinity;
+  } else {
+    out.drop=Math.sqrt(r.Ls*r.Ls-horiz*horiz);
+    out.angle = r.n===1 ? 90 : Math.asin(out.drop/r.Ls)*180/Math.PI;
+    // divisão ideal do peso entre as pernas: T = P / (n · sen θ)
+    out.tension = peso/(r.n*Math.sin(out.angle*Math.PI/180));
+    if(r.n>1 && out.angle<SLING_MIN_ANGLE) out.warnings.push(`Ângulo da linga ${fmt(out.angle,0)}° abaixo de ${SLING_MIN_ANGLE}°: a tração nas pernas cresce muito. Use linga mais longa ou aproxime as pegas.`);
+  }
+  out.hookHeight=tipHeight-HOOK_DROP_M;
+  out.topHeight=out.hookHeight-(out.drop||0);
+  out.bottomHeight=out.topHeight-r.A;
+  if(out.bottomHeight<0) out.warnings.push(`A carga não sai do solo nesta posição (fundo a ${fmt(out.bottomHeight)} m). Aumente o ângulo da lança.`);
+  if(out.problems.length) out.ok=false;
+  return out;
+}
+
 function quadrantFromSlew(s){ return s<=16 ? "frontal" : "lateral"; }
 
 function computeGeometry(){
@@ -239,6 +280,16 @@ function update(){
   /* Carga acima da capacidade nominal do equipamento não é uma operação
      "insegura": é um dado irreal (ex.: 250 t num guindaste de 30 t). */
   const irreal=sum>m.capNominal;
+  const rig=computeRigging(geo.height, carga);
+  lastRig=rig;
+  document.getElementById("rigAngleOut").textContent = rig.show && rig.drop ? fmt(rig.angle,0)+"°" : "–";
+  document.getElementById("rigTensionOut").textContent = rig.show && isFinite(rig.tension) && carga>0 ? fmt(rig.tension,0)+" kg" : "–";
+  document.getElementById("rigBottomOut").textContent = rig.show ? fmt(rig.bottomHeight)+" m" : "–";
+  const note=document.getElementById("rigNote");
+  const msgs=[...rig.problems, ...rig.warnings];
+  note.style.display = rig.show && msgs.length ? "" : "none";
+  note.className = "rigNote "+(rig.problems.length ? "danger" : "warn");
+  note.innerHTML = msgs.map(t=>"• "+t).join("<br>");
   document.getElementById("loadCarga").classList.toggle("invalid", irreal);
 
   document.getElementById("quadTagOut").innerHTML = quad==="frontal"
@@ -275,12 +326,12 @@ function update(){
   const gs=document.getElementById("globalStatus");
   gs.innerHTML = `<span class="dot" style="background:${color}"></span>${label}`;
 
-  drawCrane(geo, quad);
-  update3D();
+  drawCrane(geo, quad, rig);
+  update3D(rig);
   render3D();
 }
 
-function drawCrane(geo, quad){
+function drawCrane(geo, quad, rig){
   const m=MODELS[current];
   const W=640,H=380, groundY=320, baseX=110, scale=7.6;
   const pivotX=baseX, pivotY=groundY-m.baseHeight*scale;
@@ -319,12 +370,11 @@ function drawCrane(geo, quad){
     <path d="M ${pivotX+36} ${pivotY} A 36 36 0 0 0 ${pivotX+36*Math.cos(rad)} ${pivotY-36*Math.sin(rad)}" fill="none" stroke="#5c6774" stroke-width="1"/>
     <text x="${pivotX+42}" y="${pivotY-8}" fill="#5c6774" font-size="10" font-family="IBM Plex Mono">${angle.toFixed(0)}°</text>
 
-    <circle cx="${jibTipX}" cy="${jibTipY+5}" r="5" fill="#0e1114" stroke="${quadColor}" stroke-width="1.5"/>
-    <line x1="${jibTipX}" y1="${jibTipY}" x2="${jibTipX}" y2="${jibTipY+5}" stroke="#5c6774" stroke-width="1.5"/>
+    ${drawLoad2D(jibTipX, jibTipY, scale, quadColor, rig)}
 
     <circle id="dragHandle" cx="${jibTipX}" cy="${jibTipY}" r="13" fill="${quadColor}" fill-opacity="0.18" stroke="${quadColor}" stroke-width="1.5" style="cursor:grab;"/>
 
-    <line x1="${W-46}" y1="${groundY}" x2="${W-46}" y2="${tipY}" stroke="#3a434e" stroke-width="1" stroke-dasharray="2 3"/>
+    <line x1="${W-46}" y1="${groundY}" x2="${W-46}" y2="${jibTipY}" stroke="#3a434e" stroke-width="1" stroke-dasharray="2 3"/>
     <text x="${W-44}" y="${(groundY+tipY)/2}" fill="#5c6774" font-size="10" font-family="IBM Plex Mono">${fmt(geo.height)} m</text>
   `;
 
@@ -344,6 +394,29 @@ function drawCrane(geo, quad){
     syncSliders(); update();
   });
   handle.addEventListener("pointerup", ()=>{ dragging=false; });
+}
+
+/* Gancho, pernas da linga e a carga (vista lateral: comprimento no eixo x). */
+function drawLoad2D(tx, ty, scale, color, rig){
+  const hookY=ty+HOOK_DROP_M*scale;
+  let s=`<line x1="${tx}" y1="${ty}" x2="${tx}" y2="${hookY}" stroke="#5c6774" stroke-width="1.5"/>
+    <circle cx="${tx}" cy="${hookY}" r="4" fill="#0e1114" stroke="${color}" stroke-width="1.5"/>`;
+  if(!rig || !rig.show) return s;
+  const bad=rig.problems.length>0;
+  const slingColor = bad ? "#e5484d" : (rig.warnings.length ? "#f2a900" : "#c9d1d9");
+  const drop=(rig.drop||Math.max(rig.Ls,0.5))*scale;
+  const topY=hookY+drop;
+  const half = rig.n===1 ? 0 : Math.min(rig.d, rig.C)/2*scale;
+  const pegas = rig.n===1 ? [tx] : [tx-half, tx+half];
+  pegas.forEach(px=>{
+    s+=`<line x1="${tx}" y1="${hookY}" x2="${px}" y2="${topY}" stroke="${slingColor}" stroke-width="1.3"${bad?' stroke-dasharray="3 2"':""}/>
+      <circle cx="${px}" cy="${topY}" r="2.5" fill="${slingColor}"/>`;
+  });
+  const w=rig.C*scale, h=rig.A*scale;
+  s+=`<rect x="${tx-w/2}" y="${topY}" width="${w}" height="${h}" fill="rgba(242,169,0,0.18)" stroke="#f2a900" stroke-width="1.2"/>
+    <text x="${tx}" y="${topY+h+11}" fill="#f2a900" font-size="9" font-family="IBM Plex Mono" text-anchor="middle">${fmt(rig.C)}×${fmt(rig.L)}×${fmt(rig.A)} m</text>`;
+  if(rig.n>1 && rig.drop) s+=`<text x="${tx+half+4}" y="${hookY+drop/2}" fill="${slingColor}" font-size="9" font-family="IBM Plex Mono">${fmt(rig.angle,0)}°</text>`;
+  return s;
 }
 
 /* ---------- reverse calc ---------- */
@@ -407,7 +480,8 @@ document.getElementById("reverseWeight").addEventListener("input", ()=>{
 angleSlider.addEventListener("input", ()=>{ angle=Number(angleSlider.value); update(); });
 lenSlider.addEventListener("input", ()=>{ len=pctToLen(Number(lenSlider.value)); hideReverse(); update(); });
 slewSlider.addEventListener("input", ()=>{ slew=Number(slewSlider.value); hideReverse(); update(); });
-["loadCarga","loadLingada","loadCabo"].forEach(id=>document.getElementById(id).addEventListener("input", update));
+["loadCarga","loadLingada","loadCabo","dimC","dimL","dimA","rigDist","rigLinga"].forEach(id=>document.getElementById(id).addEventListener("input", update));
+document.getElementById("rigPernas").addEventListener("change", update);
 document.getElementById("loadBalancim").addEventListener("input", ()=>{
   const v=Number(document.getElementById("loadBalancim").value)||0;
   if(v>0) document.getElementById("useBalancim").checked=true;
@@ -504,7 +578,20 @@ function init3D(){
   cable.position.y = -0.17;
   hookAnchor.add(cable);
 
-  three3d = {renderer, scene, camera, turret, boomPivot, boom, jibPivot, jib, hookAnchor, hook};
+  /* carga pendurada: fica na cena (não no JIB) para sempre pender na vertical */
+  const loadGroup = new THREE.Group();
+  scene.add(loadGroup);
+  const loadBox = new THREE.Mesh(new THREE.BoxGeometry(1,1,1),
+    new THREE.MeshStandardMaterial({color:0xf2a900, roughness:0.6, transparent:true, opacity:0.55}));
+  loadGroup.add(loadBox);
+  loadBox.add(new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1,1,1)),
+    new THREE.LineBasicMaterial({color:0xf2a900})));
+  const slingGeo = new THREE.BufferGeometry();
+  slingGeo.setAttribute("position", new THREE.Float32BufferAttribute(new Array(30).fill(0), 3));
+  const slings = new THREE.LineSegments(slingGeo, new THREE.LineBasicMaterial({color:0xc9d1d9}));
+  loadGroup.add(slings);
+
+  three3d = {renderer, scene, camera, turret, boomPivot, boom, jibPivot, jib, hookAnchor, hook, loadGroup, loadBox, slings};
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -603,7 +690,7 @@ function resize3D(){
   three3d.renderer.setSize(w,h,false);
 }
 
-function update3D(){
+function update3D(rig=lastRig){
   if(!three3d) return;
   const m = MODELS[current];
   const jl = jibLenCur();
@@ -622,6 +709,30 @@ function update3D(){
     three3d.jibPivot.rotation.z = 0;
     three3d.hookAnchor.position.x = 0;
   }
+  updateLoad3D(rig);
+}
+
+function updateLoad3D(rig){
+  const {scene, hookAnchor, loadGroup, loadBox, slings} = three3d;
+  scene.updateMatrixWorld(true);
+  const anchor = new THREE.Vector3();
+  hookAnchor.getWorldPosition(anchor);
+  loadGroup.position.set(anchor.x, anchor.y-HOOK_DROP_M, anchor.z);
+  loadGroup.rotation.y = three3d.turret.rotation.y;
+  const pos = slings.geometry.attributes.position;
+  pos.array.fill(0);
+  pos.setXYZ(0, 0, HOOK_DROP_M, 0); pos.setXYZ(1, 0, 0, 0); // cabo do gancho
+  if(!rig || !rig.show){ loadBox.visible=false; pos.needsUpdate=true; slings.geometry.setDrawRange(0,2); return; }
+  const drop = rig.drop || Math.max(rig.Ls,0.5);
+  loadBox.visible = true;
+  loadBox.scale.set(rig.C, rig.A, rig.L);
+  loadBox.position.set(0, -drop-rig.A/2, 0);
+  const hx = rig.n===1 ? 0 : Math.min(rig.d, rig.C)/2;
+  const pegas = rig.n===1 ? [[0,0]] : rig.n===2 ? [[-hx,0],[hx,0]] : [[-hx,-rig.L/2],[-hx,rig.L/2],[hx,-rig.L/2],[hx,rig.L/2]];
+  pegas.forEach(([x,z],i)=>{ pos.setXYZ(2+i*2, 0,0,0); pos.setXYZ(3+i*2, x,-drop,z); });
+  slings.material.color.set(rig.problems.length ? 0xe5484d : rig.warnings.length ? 0xf2a900 : 0xc9d1d9);
+  slings.geometry.setDrawRange(0, 2+pegas.length*2);
+  pos.needsUpdate = true;
 }
 
 function render3D(){

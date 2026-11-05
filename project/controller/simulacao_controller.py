@@ -69,7 +69,13 @@ def simular():
     avaliacao["quadrante"] = quadrante
 
     if dados.get("salvar") and dados.get("usuario_id"):
-        carga = Carga(peso_kg=dados["peso_carga_kg"], descricao=dados.get("descricao_carga"))
+        carga = Carga(
+            peso_kg=dados["peso_carga_kg"],
+            descricao=dados.get("descricao_carga"),
+            comprimento_m=dados.get("comprimento_carga_m"),
+            largura_m=dados.get("largura_carga_m"),
+            altura_m=dados.get("altura_carga_m"),
+        )
         db.session.add(carga)
         db.session.flush()
 

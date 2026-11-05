@@ -93,6 +93,17 @@
       <div class="checkRow" id="jibRow"><input type="checkbox" id="useJib"><label for="useJib">Usar JIB</label></div>
       <div class="checkRow"><input type="checkbox" id="useBalancim"><label for="useBalancim">Usar balancim</label></div>
 
+      <p class="sectionTitle" style="margin-top:14px;">Dimensões da carga e pontos de pega</p>
+      <div class="loadsGrid dims">
+        <div class="field"><label>Comprimento (m)</label><input type="number" id="dimC" value="4" min="0" step="0.1"></div>
+        <div class="field"><label>Largura (m)</label><input type="number" id="dimL" value="2" min="0" step="0.1"></div>
+        <div class="field"><label>Altura (m)</label><input type="number" id="dimA" value="1.5" min="0" step="0.1"></div>
+        <div class="field"><label>Pernas de linga</label>
+          <select id="rigPernas"><option value="1">1 perna (pega central)</option><option value="2" selected>2 pernas</option><option value="4">4 pernas</option></select></div>
+        <div class="field"><label>Distância entre pegas (m)</label><input type="number" id="rigDist" value="3.6" min="0" step="0.1"></div>
+        <div class="field"><label>Comprimento da linga (m)</label><input type="number" id="rigLinga" value="3" min="0" step="0.1"></div>
+      </div>
+
       <p class="footNote" id="dragHint">Arraste o ponto na ponta da lança no desenho, ou use os controles acima — ambos ficam sincronizados.</p>
     </div>
 
@@ -147,6 +158,11 @@
       <div class="kv"><span class="l">Soma das cargas</span><span class="r" id="sumOut">–</span></div>
       <div class="kv"><span class="l">Capacidade disponível</span><span class="r" id="capOut">–</span></div>
     </div>
+    <div class="readout">
+      <div class="kv"><span class="l">Ângulo da linga</span><span class="r" id="rigAngleOut">–</span></div>
+      <div class="kv"><span class="l">Tração por perna</span><span class="r" id="rigTensionOut">–</span></div>
+      <div class="kv"><span class="l">Fundo da carga (do solo)</span><span class="r" id="rigBottomOut">–</span></div>
+    </div>
 
     <p class="sectionTitle" style="margin-top:20px;">Resultado</p>
     <div class="statusCard" id="statusBox">
@@ -154,6 +170,7 @@
       <div class="sub" id="statusSub">Informe o peso da carga para calcular</div>
       <div class="meter"><div class="meterFill" id="barFill" style="width:0%"></div></div>
     </div>
+    <div class="rigNote" id="rigNote" style="display:none;"></div>
   </div>
 </div>
 
