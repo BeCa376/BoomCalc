@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BOOMCALC — Cadastros</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="project/css/style.css">
+<link rel="stylesheet" href="project/css/admin.css">
+</head>
+<body class="adminPage">
+
+<div class="topbar">
+  <div class="brand">
+    <span class="mark">BOOMCALC</span>
+    <span class="sub">cadastros do administrador</span>
+  </div>
+  <div class="userBox" id="userBox"></div>
+</div>
+
+<div class="tabbar" id="adminTabs" hidden>
+  <button class="tabbtn active" data-tab="usuarios">Usuários</button>
+  <button class="tabbtn" data-tab="acessorios">Acessórios</button>
+  <button class="tabbtn" data-tab="guindastes">Guindastes</button>
+  <button class="tabbtn" data-tab="tabela">Tabela de capacidade</button>
+</div>
+
+<main class="adminMain">
+  <!-- sem login / sem permissão -->
+  <section id="gate" hidden>
+    <form class="modalCard" id="gateForm" style="margin:40px auto;">
+      <p class="sectionTitle">Entrar como administrador</p>
+      <div class="field"><label for="gUser">Login</label><input type="text" id="gUser" autocomplete="username" required></div>
+      <div class="field" style="margin-top:6px;"><label for="gPass">Senha</label><input type="password" id="gPass" autocomplete="current-password" required></div>
+      <div class="modalErr" id="gErr"></div>
+      <div class="modalBtns"><a class="btnSecondary" href="./">Voltar ao simulador</a><button class="btnPrimary" type="submit">Entrar</button></div>
+    </form>
+  </section>
+
+  <section class="adminPanel" id="p-usuarios" hidden>
+    <table class="adminTable" id="tUsuarios"></table>
+    <p class="sectionTitle">Novo usuário / editar</p>
+    <form class="adminForm" id="fUsuario">
+      <input type="hidden" name="id">
+      <div class="field"><label>Nome</label><input type="text" name="nome" required></div>
+      <div class="field"><label>Login</label><input type="text" name="login" required></div>
+      <div class="field"><label>Senha (mín. 6; em branco = manter)</label><input type="password" name="senha" autocomplete="new-password"></div>
+      <div class="field"><label>Papel</label><select name="papel"><option value="operador">Operador</option><option value="administrador">Administrador</option></select></div>
+      <div class="formBtns"><button class="btnPrimary" type="submit">Salvar</button><button class="btnSecondary" type="reset">Limpar</button></div>
+    </form>
+  </section>
+
+  <section class="adminPanel" id="p-acessorios" hidden>
+    <table class="adminTable" id="tAcessorios"></table>
+    <p class="sectionTitle">Novo acessório / editar</p>
+    <form class="adminForm" id="fAcessorio">
+      <input type="hidden" name="id">
+      <div class="field"><label>Nome</label><input type="text" name="nome" required></div>
+      <div class="field"><label>Massa (kg)</label><input type="number" name="massa_kg" min="0" step="0.01" value="0"></div>
+      <div class="field"><label>Fator de redução (0–1)</label><input type="number" name="fator_reducao" min="0" max="1" step="0.001" value="1"></div>
+      <div class="field"><label>Soma na carga?</label><select name="soma_na_carga"><option value="1">Sim</option><option value="0">Não (já incluso na tabela)</option></select></div>
+      <div class="field wide"><label>Observações</label><input type="text" name="observacoes"></div>
+      <div class="formBtns"><button class="btnPrimary" type="submit">Salvar</button><button class="btnSecondary" type="reset">Limpar</button></div>
+    </form>
+  </section>
+
+  <section class="adminPanel" id="p-guindastes" hidden>
+    <div class="field" style="max-width:260px;"><label>Guindaste</label><select id="gSel"></select></div>
+    <form class="adminForm" id="fGuindaste" style="margin-top:10px;">
+      <div class="field"><label>Capacidade nominal (kg)</label><input type="number" name="capacidade_maxima_kg" min="1" required></div>
+      <div class="field"><label>Lança mínima (m)</label><input type="number" name="comprimento_lanca_min_m" step="0.01" required></div>
+      <div class="field"><label>Lança máxima (m)</label><input type="number" name="comprimento_lanca_max_m" step="0.01" required></div>
+      <div class="field"><label>Ângulo mínimo (°)</label><input type="number" name="angulo_min_graus" step="0.1" required></div>
+      <div class="field"><label>Ângulo máximo (°)</label><input type="number" name="angulo_max_graus" step="0.1" required></div>
+      <div class="field"><label>Possui JIB?</label><select name="possui_jib"><option value="1">Sim</option><option value="0">Não</option></select></div>
+      <div class="field"><label>Maior lance do JIB (m)</label><input type="number" name="comprimento_jib_m" step="0.01"></div>
+      <div class="field"><label>Peso total (kg)</label><input type="number" name="peso_total_kg"></div>
+      <div class="field wide"><label>Observações</label><input type="text" name="observacoes"></div>
+      <div class="formBtns"><button class="btnPrimary" type="submit">Salvar</button></div>
+    </form>
+  </section>
+
+  <section class="adminPanel" id="p-tabela" hidden>
+    <p class="adminHint">Lance aqui os pontos da tabela de carga <b>oficial</b> do fabricante. A API usa estes
+      pontos para validar cada operação (interpolação dentro da faixa; fora dela, a operação é recusada).
+      Cada guindaste usa um só tipo de tabela: por <b>ângulo</b> (ex.: TM 130) ou por <b>raio</b> (ex.: MD 300L).</p>
+    <div class="adminFilters">
+      <div class="field"><label>Guindaste</label><select id="tSel"></select></div>
+      <div class="field"><label>Quadrante</label><select id="tQuad"><option value="">Todos</option><option value="frontal">Frontal</option><option value="lateral_traseira">Lateral/traseira</option></select></div>
+      <span class="adminCount" id="tCount"></span>
+    </div>
+    <form class="adminForm" id="fLinha">
+      <div class="field"><label>Quadrante</label><select name="quadrante"><option value="frontal">Frontal</option><option value="lateral_traseira">Lateral/traseira</option></select></div>
+      <div class="field"><label>Comprimento da lança (m)</label><input type="number" name="comprimento_lanca_m" step="0.01" required></div>
+      <div class="field"><label id="lblEixo">Raio (m)</label><input type="number" name="eixo" step="0.01" required></div>
+      <div class="field"><label>Capacidade (kg)</label><input type="number" name="capacidade_kg" min="0" step="1" required></div>
+      <div class="formBtns"><button class="btnPrimary" type="submit">Adicionar ponto</button></div>
+    </form>
+    <div class="adminScroll"><table class="adminTable" id="tLinhas"></table></div>
+  </section>
+
+  <div class="toast" id="toast" hidden></div>
+</main>
+
+<script src="project/js/admin.js"></script>
+</body>
+</html>

@@ -1,0 +1,29 @@
+/* Tela de cadastros (/admin) — complementa style.css */
+body.adminPage{height:auto; min-height:100dvh; overflow-x:hidden; overflow-y:auto;}
+.adminScroll, .adminPanel > .adminTable{overflow-x:auto;}
+.adminMain{padding:12px 14px; max-width:1100px; width:100%; margin:0 auto;}
+.adminPanel{display:flex; flex-direction:column; gap:8px;}
+.adminPanel[hidden], #gate[hidden], .tabbar[hidden]{display:none;}
+.adminTable{width:100%; border-collapse:collapse; font-size:10.5px;}
+.adminTable th{text-align:left; color:var(--muted); font-weight:500; padding:5px 6px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg);}
+.adminTable td{padding:5px 6px; border-bottom:1px solid var(--line); font-family:var(--mono);}
+.adminTable td.txt{font-family:var(--sans);}
+.adminTable button{font-family:var(--sans); font-size:10px; background:none; border:none; color:var(--steel); cursor:pointer; padding:0 6px 0 0;}
+.adminTable button.del{color:var(--danger);}
+.adminForm{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; align-items:end;
+  padding:8px; border:1px solid var(--line); border-radius:var(--radius-md); background:var(--panel);}
+.adminForm .wide{grid-column:span 2;}
+.adminForm input[type=text], .adminForm input[type=password], .adminForm select, .adminFilters select{
+  width:100%; padding:4px 6px; border-radius:var(--radius-sm); border:1px solid var(--line);
+  background:var(--panel); color:var(--text); font-size:10.5px; font-family:var(--sans);}
+.formBtns{display:flex; gap:6px;}
+.adminFilters{display:flex; gap:10px; align-items:end; flex-wrap:wrap;}
+.adminFilters .field{min-width:160px;}
+.adminCount{font-size:10px; color:var(--muted);}
+.adminHint{font-size:10.5px; color:var(--muted); line-height:1.5; margin:0;}
+.adminScroll{max-height:55vh; overflow:auto;}
+.toast{position:fixed; bottom:16px; left:50%; transform:translateX(-50%); padding:8px 14px; border-radius:var(--radius-md);
+  font-size:11px; background:var(--panel-alt); border:1px solid var(--line); z-index:60;}
+.toast.ok{border-color:var(--safe); color:var(--safe);}
+.toast.err{border-color:var(--danger); color:var(--danger);}
+@media (max-width:700px){ .adminForm{grid-template-columns:1fr 1fr;} }
