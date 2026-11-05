@@ -3,6 +3,7 @@ Ponto de entrada da aplicação.
 
 Roda o servidor Flask e serve:
   - "/"            -> index.html (raiz do projeto)
+  - "/admin"        -> project/html/admin.html (cadastros do administrador)
   - "/project/css/*" e "/project/js/*" -> assets do front
   - "/api/*"        -> rotas definidas em project/controller
 """
@@ -27,6 +28,12 @@ def css(filename):
 @app.get("/project/js/<path:filename>")
 def js(filename):
     return send_from_directory(os.path.join(RAIZ, "project", "js"), filename)
+
+
+@app.get("/admin")
+def admin():
+    """Tela de cadastros (o acesso às rotas é checado na API: só administrador)."""
+    return send_from_directory(os.path.join(RAIZ, "project", "html"), "admin.html")
 
 
 if __name__ == "__main__":

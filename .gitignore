@@ -18,3 +18,6 @@ config/.env
 *.sqlite3
 *.sql.bak
 !database/*.sql
+
+# Relatórios gerados pela aplicação (RF11)
+relatorios/

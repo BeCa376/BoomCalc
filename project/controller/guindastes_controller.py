@@ -1,3 +1,4 @@
+from project.model import db
 from flask import Blueprint, jsonify
 from project.model.entities import Guindaste, TabelaCapacidade
 
@@ -12,7 +13,7 @@ def listar_guindastes():
 
 @bp.get("/<int:guindaste_id>")
 def detalhe_guindaste(guindaste_id):
-    g = Guindaste.query.get_or_404(guindaste_id)
+    g = db.get_or_404(Guindaste, guindaste_id)
     return jsonify(g.to_dict())
 
 
