@@ -84,8 +84,9 @@ document.querySelectorAll("#viewToggle button").forEach(btn=>{
       ? "Arraste o gancho para mudar ângulo/comprimento · arraste o fundo para girar a câmera · roda do mouse para zoom."
       : "Arraste o ponto na ponta da lança no desenho, ou use os controles acima — ambos ficam sincronizados.";
     if(is3d){
+      const first = !three3d;
       init3D();
-      requestAnimationFrame(()=>{ resize3D(); update3D(); render3D(); });
+      requestAnimationFrame(()=>{ resize3D(); if(first) frame3D(); update3D(); render3D(); });
     }
   });
 });
@@ -117,6 +118,7 @@ function onModelChange(){
   syncSliders();
   hideReverse();
   update();
+  if(three3d){ frame3D(); render3D(); }
 }
 
 function syncAccessoryControls(){
@@ -599,6 +601,7 @@ function init3D(){
   const slings = new THREE.LineSegments(slingGeo, new THREE.LineBasicMaterial({color:0xc9d1d9}));
   loadGroup.add(slings);
 
+  cable.visible = false; // o cabo agora é desenhado na vertical junto com a carga
   three3d = {renderer, scene, camera, turret, boomPivot, boom, jibPivot, jib, hookAnchor, hook, loadGroup, loadBox, slings};
 
   const raycaster = new THREE.Raycaster();
@@ -656,25 +659,50 @@ function init3D(){
   canvas.addEventListener("pointerleave", ()=>{ dragging3d=false; draggingHook3D=false; });
   canvas.addEventListener("wheel", e=>{
     e.preventDefault();
-    orbit3d.radius = Math.max(7, Math.min(70, orbit3d.radius + e.deltaY*0.02));
+    orbit3d.radius = Math.max(7, Math.min(160, orbit3d.radius*(1+e.deltaY*0.001)));
     updateCamera3D(); render3D();
   }, {passive:false});
 
   document.querySelectorAll(".viewBtnRow button").forEach(b=>{
     b.addEventListener("click", ()=>{
-      const presets = {
-        iso:  {theta:Math.PI/4,  phi:Math.PI/3,   radius:24},
-        front:{theta:0,          phi:Math.PI/2.3, radius:20},
-        side: {theta:Math.PI/2,  phi:Math.PI/2.3, radius:20},
-        top:  {theta:Math.PI/4,  phi:0.18,        radius:28},
-      };
-      Object.assign(orbit3d, presets[b.dataset.camview]);
-      updateCamera3D(); render3D();
+      frame3D(b.dataset.camview);
+      render3D();
     });
   });
 
   window.addEventListener("resize", ()=>{ if(viewMode==="3d"){ resize3D(); render3D(); } });
 
+  updateCamera3D();
+}
+
+/* Enquadra o guindaste inteiro (caminhão, lança, JIB e carga) na vista pedida.
+   Sem isso, lança longa + JIB saem da tela na câmera fixa. */
+const CAM_PRESETS = {
+  iso:  {theta:Math.PI/4, phi:Math.PI/3},
+  front:{theta:0,         phi:Math.PI/2.15},
+  side: {theta:Math.PI/2, phi:Math.PI/2.15},
+  top:  {theta:Math.PI/4, phi:0.18},
+};
+function frame3D(view="iso"){
+  if(!three3d) return;
+  update3D();
+  const {scene, jibPivot, hookAnchor, loadGroup, loadBox, camera} = three3d;
+  scene.updateMatrixWorld(true);
+  const box = new THREE.Box3(new THREE.Vector3(-4.5,0,-1.5), new THREE.Vector3(3.5,2.5,1.5)); // caminhão
+  const v = new THREE.Vector3();
+  box.expandByPoint(jibPivot.getWorldPosition(v));
+  box.expandByPoint(hookAnchor.getWorldPosition(v));
+  if(loadBox.visible){
+    const lb = new THREE.Box3().setFromObject(loadBox);
+    box.union(lb);
+  }
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const fitH = (size.y/2) / Math.tan(camera.fov*Math.PI/360);
+  const fitW = (Math.max(size.x,size.z)/2) / (Math.tan(camera.fov*Math.PI/360)*Math.max(camera.aspect,0.5));
+  Object.assign(orbit3d, CAM_PRESETS[view] || CAM_PRESETS.iso);
+  orbit3d.target.copy(center);
+  orbit3d.radius = Math.min(160, Math.max(10, Math.max(fitH, fitW)*1.25 + Math.max(size.x,size.z)/2));
   updateCamera3D();
 }
 
@@ -727,6 +755,8 @@ function updateLoad3D(rig){
   hookAnchor.getWorldPosition(anchor);
   loadGroup.position.set(anchor.x, anchor.y-HOOK_DROP_M, anchor.z);
   loadGroup.rotation.y = three3d.turret.rotation.y;
+  // gancho sempre na vertical abaixo da ponta, onde começam as pernas da linga
+  three3d.hook.position.copy(hookAnchor.worldToLocal(new THREE.Vector3(anchor.x, anchor.y-HOOK_DROP_M, anchor.z)));
   const pos = slings.geometry.attributes.position;
   pos.array.fill(0);
   pos.setXYZ(0, 0, HOOK_DROP_M, 0); pos.setXYZ(1, 0, 0, 0); // cabo do gancho
