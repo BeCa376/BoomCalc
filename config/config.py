@@ -17,3 +17,13 @@ class Config:
     # Regras de negócio configuráveis (RN08 etc.)
     LIMITE_VENTO_MS = float(os.environ.get("LIMITE_VENTO_MS", 12.5))
     LIMITE_PERCENTUAL_ALERTA = 80  # a partir daqui, status = "proximo_limite"
+
+    # Sessão (login): cookie assinado, inacessível ao JavaScript
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+
+    # Onde os relatórios gerados (RF11) são gravados
+    RELATORIOS_DIR = os.environ.get(
+        "RELATORIOS_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "relatorios"),
+    )
