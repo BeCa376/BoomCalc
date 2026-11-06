@@ -65,6 +65,13 @@
     white-space:nowrap; flex-shrink:1; overflow:hidden; text-overflow:ellipsis;
   }
   .globalStatus .dot{width:5px; height:5px; border-radius:50%; flex-shrink:0;}
+  /* tela estreita: o topo quebra em duas linhas em vez de sobrepor usuário e status */
+  @media (max-width:640px){
+    .topbar{flex-wrap:wrap; row-gap:4px;}
+    .brand .sub{display:none;}
+    .userBox{flex-shrink:0;}
+    .globalStatus{flex:1 1 100%; justify-content:center;}
+  }
 
   /* ---------- tabs ---------- */
   .tabbar{
