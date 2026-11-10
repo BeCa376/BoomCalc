@@ -41,8 +41,15 @@ class Guindaste(db.Model):
     possui_jib = db.Column(db.Boolean, default=False)
     comprimento_jib_m = db.Column(db.Numeric(6, 2), nullable=True)
     peso_total_kg = db.Column(db.Numeric(10, 2), nullable=True)
+    # dimensões do equipamento (posição de transporte) e abertura das patolas
+    comprimento_m = db.Column(db.Numeric(6, 2), nullable=True)
+    largura_m = db.Column(db.Numeric(6, 2), nullable=True)
+    altura_m = db.Column(db.Numeric(6, 2), nullable=True)
+    abertura_patolas_m = db.Column(db.Numeric(6, 2), nullable=True)
     observacoes = db.Column(db.Text, nullable=True)
     criado_em = db.Column(db.TIMESTAMP, server_default=db.func.now())
+
+    DIMENSOES = ("comprimento_m", "largura_m", "altura_m", "abertura_patolas_m")
 
     tabela_capacidade = db.relationship("TabelaCapacidade", backref="guindaste", lazy=True)
 
@@ -59,6 +66,7 @@ class Guindaste(db.Model):
             "possui_jib": self.possui_jib,
             "comprimento_jib_m": float(self.comprimento_jib_m) if self.comprimento_jib_m else None,
             "peso_total_kg": float(self.peso_total_kg) if self.peso_total_kg else None,
+            **{c: (float(getattr(self, c)) if getattr(self, c) is not None else None) for c in self.DIMENSOES},
             "observacoes": self.observacoes,
         }
 
@@ -187,17 +195,33 @@ class ObjetoCena(db.Model):
     pos_x_m = db.Column(db.Numeric(8, 2), nullable=False, default=0)
     pos_z_m = db.Column(db.Numeric(8, 2), nullable=False, default=0)
     rotacao_graus = db.Column(db.Numeric(6, 2), nullable=False, default=0)
+    # personalização: forma, cor e pontos de pega (lingada) do objeto
+    forma = db.Column(db.String(10), nullable=False, default="caixa")
+    cor = db.Column(db.String(7), nullable=False, default="#5b9bd1")
+    pernas = db.Column(db.Integer, nullable=False, default=2)
+    dist_pegas_m = db.Column(db.Numeric(6, 2), nullable=False, default=0)
+    linga_m = db.Column(db.Numeric(6, 2), nullable=False, default=3)
     criado_em = db.Column(db.TIMESTAMP, server_default=db.func.now())
 
+    FORMAS = ("caixa", "cilindro", "tubo")
+    PERNAS = (1, 2, 4)
     CAMPOS = {  # nome no JSON -> coluna
         "nome": "nome", "peso": "peso_kg", "C": "comprimento_m", "L": "largura_m",
         "A": "altura_m", "x": "pos_x_m", "z": "pos_z_m", "rot": "rotacao_graus",
+        "forma": "forma", "cor": "cor", "pernas": "pernas",
+        "dist": "dist_pegas_m", "linga": "linga_m",
     }
+    TEXTO = ("nome", "forma", "cor")
 
     def to_dict(self):
         d = {"id": self.id}
         for chave, coluna in self.CAMPOS.items():
             v = getattr(self, coluna)
-            d[chave] = v if chave == "nome" else float(v)
+            if chave in self.TEXTO:
+                d[chave] = v
+            elif chave == "pernas":
+                d[chave] = int(v)
+            else:
+                d[chave] = float(v) if v is not None else 0.0
         return d
 
