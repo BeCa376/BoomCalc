@@ -27,3 +27,6 @@ class Config:
         "RELATORIOS_DIR",
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "relatorios"),
     )
+
+    # Tamanho máximo de uma requisição (o relatório da cena manda as imagens do radar e do 3D)
+    MAX_CONTENT_LENGTH = 16 * 1024 * 1024
