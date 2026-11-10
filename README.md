@@ -75,7 +75,9 @@ A tela de cadastros fica em `http://localhost:5000/admin`.
 > **Banco já criado numa versão anterior?** O `seed.sql` mudou (tabela
 > `objeto_cena`, coluna `acessorio.soma_na_carga`, `resultado.mensagem` como
 > TEXT e senhas com hash). Rode o script de novo num banco limpo
-> (`DROP DATABASE boomcalc;` antes) — ele recria tudo.
+> (`DROP DATABASE boomcalc;` antes) — ele recria tudo. Para manter os dados,
+> rode só os `ALTER TABLE` de `migracoes/001_objetos_e_dimensoes.sql`
+> (objetos personalizados e dimensões do guindaste).
 
 ### Usuários de teste
 
@@ -127,7 +129,18 @@ Ou crie manualmente o arquivo `config/.env` preenchendo os valores necessários.
   Calcula o ângulo da linga, a tração por perna e se a carga sai do solo.
 - **Objetos na cena (3D)**: adicione, edite, arraste e use **Içar** para o
   guindaste ir até o objeto e carregá-lo, e **Soltar aqui** para deixá-lo sob
-  o gancho.
+  o gancho. Cada objeto é **personalizável**: nome, **forma** (caixa, cilindro
+  em pé ou tubo deitado), **cor**, peso, dimensões, posição e **pontos de
+  pega** (1, 2 ou 4, distância entre pegas e linga). O editor mostra o volume,
+  o ângulo da linga e a tração por perna; no 3D aparecem os pontos de pega e
+  um contorno no chão com a cor do estado (verde/amarelo/vermelho/cinza).
+- **Relatório da cena** (PDF ou CSV, exige login): todos os objetos com forma,
+  tamanho, volume, peso, posição, configuração da lança, capacidade, uso e
+  status (recalculados no servidor com a tabela do banco), pontos de pega e
+  tração por perna, mais as imagens do **radar** (com os nomes) e da **vista
+  3D**, e uma página com as **dimensões do guindaste** (comprimento, largura,
+  altura, abertura das patolas, lança, JIB, alcance e altura máximos), a
+  configuração usada e a **vista lateral em escala**.
 - **Radar**: visão de cima com alcance, setor frontal, zonas de capacidade
   da configuração atual, lança e objetos. Clique num objeto para selecionar
   ou num espaço vazio para mover o objeto selecionado.
@@ -145,7 +158,9 @@ Ou crie manualmente o arquivo `config/.env` preenchendo os valores necessários.
 
 - **Usuários**: criar, editar (nome, login, senha, papel) e remover.
 - **Acessórios**: massa, fator de redução e se soma na carga.
-- **Guindastes**: capacidade nominal, limites de lança e ângulo, JIB.
+- **Guindastes**: capacidade nominal, limites de lança e ângulo, JIB e
+  dimensões do equipamento (comprimento, largura, altura e abertura das
+  patolas), que aparecem no relatório da cena.
 - **Tabela de capacidade**: adicionar e remover pontos por quadrante e
   comprimento de lança. É aqui que a empresa lança os valores **oficiais**
   do catálogo (ex.: a área lateral/traseira do MD 300L, que ainda falta).
@@ -160,6 +175,7 @@ Servida pelo `app.py`, a página usa:
 - `POST /api/simular/alcance-maximo`
 - `GET /api/historico`: aba Histórico (do usuário logado)
 - `GET /api/simulacoes/<id>/relatorio?formato=pdf|csv`: relatório (RF11)
+- `POST /api/cena/relatorio`: relatório da cena (objetos, radar, 3D e guindaste)
 - `GET /api/acessorios`, `POST /api/auth/login`, `POST /api/auth/logout`,
   `GET /api/auth/me`
 - `GET|POST /api/objetos`, `PUT|DELETE /api/objetos/<id>`: objetos da cena
@@ -189,7 +205,10 @@ local e a tela avisa que está offline.
    pela tabela da lança principal no raio da ponta do JIB)
 6. TM 130: a tabela do seed só tem a lança de 12,4 m; a capacidade ainda
    não varia com o comprimento da lança
+7. Dimensões dos guindastes (comprimento, largura, altura e abertura das
+   patolas): os campos existem, mas estão vazios no seed — o relatório da
+   cena mostra "não cadastrado" até alguém preencher em `/admin` → Guindastes
 
-Os itens 4 a 6 dependem da tabela de carga **oficial** do fabricante (não há
+Os itens 4 a 7 dependem da ficha e da tabela de carga **oficiais** do fabricante (não há
 catálogo público do MD 300L nem do TM 130). Quando a empresa enviar, basta
 lançar os pontos em `/admin` → Tabela de capacidade.
