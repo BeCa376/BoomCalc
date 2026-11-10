@@ -197,3 +197,77 @@ def test_relatorio_de_outro_usuario(client, operador):
     client.post("/api/auth/logout")
     logar(client, "outro", "senha123")
     assert client.get(f"/api/simulacoes/{sid}/relatorio").status_code == 403
+
+
+# ------------------------------------------------------------------ objetos personalizados
+def test_objeto_personalizado(client, operador):
+    o = client.post("/api/objetos", json={"nome": "Tanque", "peso": 3000, "C": 2.5, "L": 1, "A": 3,
+                                          "forma": "cilindro", "cor": "#FF8800", "pernas": 4,
+                                          "dist": 2, "linga": 3.5}).get_json()
+    # cilindro em pé: a largura acompanha o diâmetro (comprimento)
+    assert o["forma"] == "cilindro" and o["cor"] == "#ff8800" and o["pernas"] == 4 and o["L"] == 2.5
+    o2 = client.put(f"/api/objetos/{o['id']}", json={"forma": "tubo", "C": 6, "L": 0.8}).get_json()
+    assert o2["forma"] == "tubo" and o2["A"] == 0.8  # tubo deitado: altura = diâmetro
+    assert client.put(f"/api/objetos/{o['id']}", json={"forma": "esfera"}).status_code == 400
+    assert client.put(f"/api/objetos/{o['id']}", json={"cor": "vermelho"}).status_code == 400
+    assert client.put(f"/api/objetos/{o['id']}", json={"pernas": 3}).status_code == 400
+
+
+# ------------------------------------------------------------------ relatório da cena
+PNG_1PX = ("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk"
+           "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==")
+
+
+def _cena(**extra):
+    return {"guindaste_id": 2, "condicao_terreno": "firme", "objetos": [
+        {"nome": "Leve", "forma": "caixa", "cor": "#3366cc", "peso": 5000, "C": 3, "L": 2, "A": 1,
+         "pernas": 2, "dist": 2.5, "linga": 3, "raio_m": 4, "direcao_graus": 0,
+         "comprimento_lanca_m": 10.5, "angulo_graus": 60},
+        {"nome": "Pesado", "forma": "tubo", "cor": "#aa2222", "peso": 40000, "C": 6, "L": 1, "A": 1,
+         "pernas": 4, "dist": 4, "linga": 2, "raio_m": 4, "direcao_graus": 0,
+         "comprimento_lanca_m": 10.5, "angulo_graus": 60},
+        {"nome": "Longe", "peso": 100, "C": 1, "L": 1, "A": 1, "raio_m": 80, "direcao_graus": 120,
+         "comprimento_lanca_m": None, "angulo_graus": None},
+    ], **extra}
+
+
+def test_relatorio_da_cena_exige_login(client):
+    assert client.post("/api/cena/relatorio", json=_cena()).status_code == 401
+
+
+def test_relatorio_da_cena_csv(client, operador):
+    r = client.post("/api/cena/relatorio", json=_cena(formato="csv"))
+    assert r.status_code == 200
+    linhas = r.data.decode("utf-8-sig").splitlines()
+    assert len(linhas) == 4
+    assert "SEGURO" in linhas[1] and "3,00;2,00;1,00" in linhas[1]
+    assert "INSEGURO" in linhas[2] and "Tubo (deitado)" in linhas[2]
+    assert "Linga curta" in linhas[2]  # 2 m não alcança pegas a 4 m x 1 m
+    assert "FORA DO ALCANCE" in linhas[3]
+
+
+def test_relatorio_da_cena_pdf_com_imagens(client, operador):
+    cfg = {"comprimento_lanca_m": 10.5, "angulo_graus": 60, "giro_graus": 0, "quadrante": "frontal",
+           "raio_m": 6.75, "altura_ponta_m": 11.1, "usa_jib": True, "jib_lance_m": 9, "jib_pino_graus": 25,
+           "alcance_max_m": 33.6, "altura_max_m": 33.8}
+    r = client.post("/api/cena/relatorio", json=_cena(imagem_radar=PNG_1PX, imagem_3d=PNG_1PX,
+                                                       imagem_2d=PNG_1PX, configuracao=cfg))
+    assert r.status_code == 200 and r.data[:4] == b"%PDF"
+
+
+def test_admin_cadastra_dimensoes_do_guindaste(client, admin):
+    g = client.get("/api/guindastes/2").get_json()
+    assert g["comprimento_m"] is None
+    g.update(comprimento_m=12.9, largura_m=2.6, altura_m=3.9, abertura_patolas_m=6.2)
+    g2 = client.put("/api/admin/guindastes/2", json=g).get_json()
+    assert (g2["comprimento_m"], g2["abertura_patolas_m"]) == (12.9, 6.2)
+    g["largura_m"] = -1
+    assert client.put("/api/admin/guindastes/2", json=g).status_code == 400
+
+
+def test_relatorio_da_cena_valida_entrada(client, operador):
+    assert client.post("/api/cena/relatorio", json=_cena(objetos=[])).status_code == 400
+    assert client.post("/api/cena/relatorio", json=_cena(imagem_radar="data:text/html;base64,AAAA")).status_code == 400
+    ruim = _cena()
+    ruim["objetos"][0]["peso"] = 0
+    assert client.post("/api/cena/relatorio", json=ruim).status_code == 400

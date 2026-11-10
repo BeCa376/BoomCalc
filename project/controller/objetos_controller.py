@@ -1,4 +1,6 @@
 """Objetos da cena 3D, salvos por usuário."""
+import re
+
 from flask import Blueprint, jsonify, request
 from project.model import db
 from project.model.entities import ObjetoCena
@@ -6,7 +8,8 @@ from project.controller.auth_controller import login_obrigatorio, usuario_atual
 
 bp = Blueprint("objetos", __name__, url_prefix="/api/objetos")
 
-LIMITES = {"peso": 0, "C": 0.1, "L": 0.1, "A": 0.1}
+LIMITES = {"peso": 0, "C": 0.1, "L": 0.1, "A": 0.1, "dist": 0, "linga": 0}
+COR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
 def _preencher(o, d):
@@ -19,6 +22,25 @@ def _preencher(o, d):
                 raise ValueError("Nome: obrigatório.")
             o.nome = nome
             continue
+        if chave == "forma":
+            if d["forma"] not in ObjetoCena.FORMAS:
+                raise ValueError("Forma: use " + ", ".join(ObjetoCena.FORMAS) + ".")
+            o.forma = d["forma"]
+            continue
+        if chave == "cor":
+            if not COR.match(str(d["cor"] or "")):
+                raise ValueError("Cor: use o formato #rrggbb.")
+            o.cor = d["cor"].lower()
+            continue
+        if chave == "pernas":
+            try:
+                n = int(d["pernas"])
+            except (TypeError, ValueError):
+                n = 0
+            if n not in ObjetoCena.PERNAS:
+                raise ValueError("Pernas: use 1, 2 ou 4 pontos de pega.")
+            o.pernas = n
+            continue
         try:
             v = float(d[chave])
         except (TypeError, ValueError):
@@ -26,6 +48,11 @@ def _preencher(o, d):
         if chave in LIMITES and v < LIMITES[chave]:
             raise ValueError(f"{chave}: deve ser no mínimo {LIMITES[chave]}.")
         setattr(o, coluna, v)
+    # cilindro em pé: largura = diâmetro (= comprimento); tubo deitado: altura = diâmetro (= largura)
+    if o.forma == "cilindro" and o.comprimento_m is not None:
+        o.largura_m = o.comprimento_m
+    elif o.forma == "tubo" and o.largura_m is not None:
+        o.altura_m = o.largura_m
 
 
 def _do_usuario(oid):

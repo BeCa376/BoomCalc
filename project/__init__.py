@@ -4,7 +4,7 @@ from flask_cors import CORS
 from config.config import Config
 from project.model import db
 from project.controller import (
-    auth_controller, cadastros_controller, guindastes_controller, historico_controller,
+    auth_controller, cadastros_controller, cena_controller, guindastes_controller, historico_controller,
     objetos_controller, relatorio_controller, simulacao_controller,
 )
 
@@ -19,7 +19,7 @@ def create_app(config_extra=None):
     db.init_app(app)
     CORS(app)  # útil em dev; restrinja a origem em produção
 
-    for modulo in (auth_controller, cadastros_controller, guindastes_controller,
+    for modulo in (auth_controller, cadastros_controller, cena_controller, guindastes_controller,
                    historico_controller, objetos_controller, relatorio_controller,
                    simulacao_controller):
         app.register_blueprint(modulo.bp)

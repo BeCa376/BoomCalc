@@ -51,28 +51,26 @@ def _fora_dos_limites(guindaste, dados):
     return None
 
 
-@bp.post("/simular")
-def simular():
-    """
-    Corpo (JSON): guindaste_id, comprimento_lanca_m, angulo_graus,
-    angulo_giro_graus, raio_operacao_m, peso_carga_kg, massa_lingada_kg,
-    massa_cabo_kg, usa_balancim, massa_balancim_kg, velocidade_vento_ms,
-    acessorio_ids[], condicao_terreno (firme|mole|nao_informado), salvar (bool).
-    Para salvar é preciso estar logado (a simulação vai para o usuário da sessão).
-    """
-    dados = request.get_json(force=True)
+class ErroSimulacao(ValueError):
+    """Dado inválido para simular (vira HTTP 400)."""
 
+
+def avaliar(dados):
+    """
+    Núcleo da simulação (RN01–RN08), usado por /api/simular e pelo relatório da cena.
+    Devolve (guindaste, avaliacao, acessorios, terreno); dado inválido -> ErroSimulacao.
+    """
     faltando = validar_campos_obrigatorios(
         dados, ["guindaste_id", "comprimento_lanca_m", "angulo_graus",
                 "raio_operacao_m", "peso_carga_kg"]
     )
     if faltando:
-        return jsonify({"erro": f"RN03: campos obrigatórios ausentes: {', '.join(faltando)}"}), 400
+        raise ErroSimulacao(f"RN03: campos obrigatórios ausentes: {', '.join(faltando)}")
 
     guindaste = db.get_or_404(Guindaste, dados["guindaste_id"])
     erro_limite = _fora_dos_limites(guindaste, dados)
     if erro_limite:
-        return jsonify({"erro": erro_limite}), 400
+        raise ErroSimulacao(erro_limite)
     quadrante = quadrante_por_giro(dados.get("angulo_giro_graus", 0))
     linhas = _linhas_mais_proximas(dados["guindaste_id"], quadrante, dados["comprimento_lanca_m"])
     capacidade_tabela = capacidade_disponivel(
@@ -91,7 +89,7 @@ def simular():
 
     terreno = dados.get("condicao_terreno") or "nao_informado"
     if terreno not in TERRENOS:
-        return jsonify({"erro": "Condição de terreno inválida."}), 400
+        raise ErroSimulacao("Condição de terreno inválida.")
 
     avaliacao = avaliar_operacao(
         capacidade_kg=capacidade,
@@ -118,6 +116,24 @@ def simular():
         )
     elif terreno == "nao_informado":
         avaliacao["avisos"].append("Condição do terreno não informada.")
+    return guindaste, avaliacao, acessorios, terreno
+
+
+@bp.post("/simular")
+def simular():
+    """
+    Corpo (JSON): guindaste_id, comprimento_lanca_m, angulo_graus,
+    angulo_giro_graus, raio_operacao_m, peso_carga_kg, massa_lingada_kg,
+    massa_cabo_kg, usa_balancim, massa_balancim_kg, velocidade_vento_ms,
+    acessorio_ids[], condicao_terreno (firme|mole|nao_informado), salvar (bool).
+    Para salvar é preciso estar logado (a simulação vai para o usuário da sessão).
+    """
+    dados = request.get_json(force=True)
+    try:
+        guindaste, avaliacao, acessorios, terreno = avaliar(dados)
+    except ErroSimulacao as e:
+        return jsonify({"erro": str(e)}), 400
+    quadrante = avaliacao["quadrante"]
 
     if dados.get("salvar"):
         usuario = usuario_atual()

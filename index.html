@@ -67,16 +67,30 @@
         <span class="sectionTitle" style="margin:0;">Objetos na cena</span>
         <div class="objChips" id="objChips"></div>
         <button class="btnSecondary" id="objAdd">+ Adicionar objeto</button>
+        <div class="reportBtns">
+          <button class="btnPrimary" id="sceneReportPdf" title="PDF com todos os objetos, tamanhos, pontos de pega, radar e vista 3D">Relatório da cena</button>
+          <button class="btnSecondary" id="sceneReportCsv" title="Planilha com os objetos da cena">CSV</button>
+        </div>
       </div>
       <div class="objEditor" id="objEditor" style="display:none;">
         <div class="objFields">
           <div class="field"><label>Nome</label><input type="text" id="objNome"></div>
+          <div class="field"><label>Forma</label><select id="objForma">
+            <option value="caixa">Caixa</option><option value="cilindro">Cilindro (em pé)</option><option value="tubo">Tubo (deitado)</option></select></div>
+          <div class="field"><label>Cor</label><input type="color" id="objCor" value="#5b9bd1"></div>
           <div class="field"><label>Peso (kg)</label><input type="number" id="objPeso" min="0"></div>
-          <div class="field"><label>Comprimento (m)</label><input type="number" id="objC" min="0.1" step="0.1"></div>
-          <div class="field"><label>Largura (m)</label><input type="number" id="objL" min="0.1" step="0.1"></div>
-          <div class="field"><label>Altura (m)</label><input type="number" id="objA" min="0.1" step="0.1"></div>
+          <div class="field"><label id="lblObjC">Comprimento (m)</label><input type="number" id="objC" min="0.1" step="0.1"></div>
+          <div class="field"><label id="lblObjL">Largura (m)</label><input type="number" id="objL" min="0.1" step="0.1"></div>
+          <div class="field"><label id="lblObjA">Altura (m)</label><input type="number" id="objA" min="0.1" step="0.1"></div>
+        </div>
+        <div class="objFields objFields2">
           <div class="field"><label>Raio (m)</label><input type="number" id="objR" min="0" step="0.1"></div>
           <div class="field"><label>Direção (°)</label><input type="number" id="objAz" min="-180" max="180" step="1"></div>
+          <div class="field"><label>Pontos de pega</label><select id="objPernas">
+            <option value="1">1 (central)</option><option value="2">2 pegas</option><option value="4">4 pegas</option></select></div>
+          <div class="field"><label>Distância entre pegas (m)</label><input type="number" id="objDist" min="0" step="0.1"></div>
+          <div class="field"><label>Linga por perna (m)</label><input type="number" id="objLinga" min="0" step="0.1"></div>
+          <div class="objInfo" id="objInfo"></div>
         </div>
         <div class="objActions">
           <button class="btnPrimary" id="objPick">Içar</button>

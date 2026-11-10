@@ -31,6 +31,10 @@ CREATE TABLE guindaste (
   possui_jib          BOOLEAN NOT NULL DEFAULT FALSE,
   comprimento_jib_m   DECIMAL(6,2) NULL,
   peso_total_kg       DECIMAL(10,2) NULL,
+  comprimento_m       DECIMAL(6,2) NULL,              -- dimensões em posição de transporte
+  largura_m           DECIMAL(6,2) NULL,
+  altura_m            DECIMAL(6,2) NULL,
+  abertura_patolas_m  DECIMAL(6,2) NULL,              -- distância entre patolas abertas
   observacoes         TEXT NULL,
   criado_em           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -159,6 +163,11 @@ CREATE TABLE objeto_cena (
   pos_x_m        DECIMAL(8,2) NOT NULL DEFAULT 0,
   pos_z_m        DECIMAL(8,2) NOT NULL DEFAULT 0,
   rotacao_graus  DECIMAL(6,2) NOT NULL DEFAULT 0,
+  forma          VARCHAR(10) NOT NULL DEFAULT 'caixa',   -- caixa | cilindro | tubo
+  cor            VARCHAR(7)  NOT NULL DEFAULT '#5b9bd1', -- cor do objeto na cena (#rrggbb)
+  pernas         INT NOT NULL DEFAULT 2,                 -- pontos de pega: 1, 2 ou 4
+  dist_pegas_m   DECIMAL(6,2) NOT NULL DEFAULT 0,        -- distância entre pegas
+  linga_m        DECIMAL(6,2) NOT NULL DEFAULT 3,        -- comprimento de cada perna da linga
   criado_em      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (usuario_id) REFERENCES usuario(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;

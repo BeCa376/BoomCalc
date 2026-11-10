@@ -177,6 +177,9 @@ def editar_guindaste(gid):
         amax = _num(d.get("angulo_max_graus"), "Ângulo máximo", 0)
         jib = _num(d.get("comprimento_jib_m"), "Comprimento do JIB", 0, opcional=True)
         peso = _num(d.get("peso_total_kg"), "Peso total", 0, opcional=True)
+        dims = {c: _num(d.get(c), rot, 0, opcional=True) for c, rot in (
+            ("comprimento_m", "Comprimento"), ("largura_m", "Largura"), ("altura_m", "Altura"),
+            ("abertura_patolas_m", "Abertura das patolas"))}
     except ValueError as e:
         return _erro(e)
     if cmin >= cmax:
@@ -188,6 +191,8 @@ def editar_guindaste(gid):
     g.possui_jib = bool(d.get("possui_jib"))
     g.comprimento_jib_m = jib if g.possui_jib else None
     g.peso_total_kg = peso
+    for c, v in dims.items():
+        setattr(g, c, v)
     g.observacoes = d.get("observacoes") or None
     db.session.commit()
     return jsonify(g.to_dict())
