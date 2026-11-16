@@ -231,8 +231,13 @@ def _cena(**extra):
     ], **extra}
 
 
-def test_relatorio_da_cena_exige_login(client):
-    assert client.post("/api/cena/relatorio", json=_cena()).status_code == 401
+def test_relatorio_da_simulacao_nao_exige_login(client):
+    """Mesmo com o login ligado, o relatório da simulação (PDF e CSV) é gerado sem entrar."""
+    r = client.post("/api/cena/relatorio", json=_cena(formato="csv"))
+    assert r.status_code == 200
+    assert "relatorio_simulacao_" in r.headers["Content-Disposition"]
+    r = client.post("/api/cena/relatorio", json=_cena())
+    assert r.status_code == 200 and r.data[:4] == b"%PDF"
 
 
 def test_relatorio_da_cena_csv(client, operador):
@@ -271,3 +276,115 @@ def test_relatorio_da_cena_valida_entrada(client, operador):
     ruim = _cena()
     ruim["objetos"][0]["peso"] = 0
     assert client.post("/api/cena/relatorio", json=ruim).status_code == 400
+
+
+# ------------------------------------------------------------------ setores e giro por modelo (planilha da empresa)
+def _sim(client, gid, **campos):
+    corpo = dict(guindaste_id=gid, comprimento_lanca_m=14.1 if gid == 2 else 12.4, angulo_graus=50,
+                 raio_operacao_m=6, peso_carga_kg=500, angulo_giro_graus=0)
+    corpo.update(campos)
+    return client.post("/api/simular", json=corpo)
+
+
+def test_md300l_setor_frontal_e_de_110_graus(client):
+    """MD 300L: Figura A (frontal) = 110° => ±55°. Giro de 40° ainda é frontal; 60° já é lateral/traseira."""
+    assert _sim(client, 2, angulo_giro_graus=40).get_json()["quadrante"] == "frontal"
+    assert _sim(client, 2, angulo_giro_graus=-55).get_json()["quadrante"] == "frontal"
+    r = _sim(client, 2, angulo_giro_graus=60).get_json()
+    assert r["quadrante"] == "lateral_traseira"
+
+
+def test_tm130_zona_1_e_de_32_graus_e_giro_vai_ate_60(client):
+    """TM 130: Zona 1 = ±16°; o giro só vai até ±60° (120° no total)."""
+    assert _sim(client, 1, angulo_giro_graus=16).get_json()["quadrante"] == "frontal"
+    assert _sim(client, 1, angulo_giro_graus=30).get_json()["quadrante"] == "lateral_traseira"
+    r = _sim(client, 1, angulo_giro_graus=70)
+    assert r.status_code == 400 and "RN06" in r.get_json()["erro"] and "giro" in r.get_json()["erro"]
+
+
+def test_dados_de_geometria_da_planilha_no_banco(client):
+    g = {x["modelo"]: x for x in client.get("/api/guindastes").get_json()}
+    assert (g["TM 130"]["altura_pe_lanca_m"], g["TM 130"]["recuo_pe_lanca_m"]) == (2.8, 0.0)
+    assert (g["MD 300L"]["altura_pe_lanca_m"], g["MD 300L"]["recuo_pe_lanca_m"]) == (3.0, 1.4)
+    assert (g["TM 130"]["setor_frontal_graus"], g["TM 130"]["giro_max_graus"]) == (32.0, 60.0)
+    assert (g["MD 300L"]["setor_frontal_graus"], g["MD 300L"]["giro_max_graus"]) == (110.0, 180.0)
+
+
+def test_alcance_maximo_respeita_giro_do_modelo(client):
+    r = client.post("/api/simular/alcance-maximo",
+                    json={"guindaste_id": 1, "comprimento_lanca_m": 12.4, "peso_kg": 500, "angulo_giro_graus": 90})
+    assert r.status_code == 400
+
+
+# ------------------------------------------------------------------ catálogo de itens da lingada (planilha da empresa)
+def test_catalogo_da_lingada(client):
+    c = client.get("/api/catalogo/lingada").get_json()
+    assert len(c["manilhas"]) == 16 and len(c["cintas_planas"]) == 11 and len(c["cintas_tubulares"]) == 18
+    m = next(x for x in c["manilhas"] if x["polegadas"] == '7/8"')
+    assert (m["cmt_t"], m["peso_kg"]) == (6.5, 1.7)
+    violeta = c["cintas_planas"][0]
+    assert violeta["cor"] == "Violeta" and violeta["capacidade_vertical_kg"] == 1000
+    # fórmula da planilha: massa = peso do 1º metro + comprimento × peso do metro adicional
+    assert round(violeta["peso_1m_kg"] + 3 * violeta["peso_metro_adicional_kg"], 2) == 0.80
+
+
+# ------------------------------------------------------------------ histórico: reabrir como estava e excluir
+ESTADO = {"v": 1, "modelo": "MD300L", "len": 14.1, "angle": 50, "slew": 40, "carga": 5000, "lingada": 20,
+          "jib": {"on": False, "lance": 9, "furo": 10}, "itens": [{"nome": "Manilha 7/8\"", "massa": 1.7, "qtd": 4}]}
+
+
+def _salvar(cli, **extra):
+    r = simular(cli, salvar=True, **extra)
+    assert r.status_code == 200, r.get_json()
+    return r.get_json()["simulacao_id"]
+
+
+def test_simulacao_salva_guarda_o_estado_e_reabre_igual(client, operador):
+    sim_id = _salvar(client, estado=ESTADO)
+    d = client.get(f"/api/simulacoes/{sim_id}").get_json()
+    assert d["estado"] == ESTADO
+    assert d["peso_carga_kg"] == 5000 and d["guindaste_id"] == 2 and d["comprimento_lanca_m"] == 10.5
+
+
+def test_simulacao_sem_estado_ainda_abre(client, operador):
+    d = client.get(f"/api/simulacoes/{_salvar(client)}").get_json()
+    assert d["estado"] is None and d["angulo_graus"] == 60 and d["quadrante"] == "frontal"
+
+
+def test_estado_invalido_ou_grande_nao_salva(client, operador):
+    assert simular(client, salvar=True, estado="texto").status_code == 400
+    assert simular(client, salvar=True, estado={"x": "a" * 30000}).status_code == 400
+    assert client.get("/api/historico").get_json() == []
+
+
+def test_excluir_remove_simulacao_resultado_carga_e_relatorios(client, operador, app):
+    import os
+    from project.model.entities import Resultado, Carga
+    sim_id = _salvar(client)
+    assert client.get(f"/api/simulacoes/{sim_id}/relatorio?formato=csv").status_code == 200
+    pasta = app.config["RELATORIOS_DIR"]
+    assert len(os.listdir(pasta)) == 1
+    r = client.delete(f"/api/simulacoes/{sim_id}")
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    assert client.get("/api/historico").get_json() == []
+    assert client.get(f"/api/simulacoes/{sim_id}").status_code == 404
+    assert os.listdir(pasta) == []                                  # o arquivo do relatório também foi apagado
+    with app.app_context():
+        assert Resultado.query.count() == 0 and Carga.query.count() == 0
+
+
+def test_excluir_e_abrir_exigem_login(client):
+    assert client.delete("/api/simulacoes/1").status_code == 401
+    assert client.get("/api/simulacoes/1").status_code == 401
+
+
+def test_operador_nao_abre_nem_exclui_simulacao_de_outro(app):
+    a = app.test_client(); logar(a, "operador", "operador123")
+    sim_id = _salvar(a)
+    adm = app.test_client(); logar(adm, "admin", "admin123")
+    r = adm.post("/api/admin/usuarios", json={"nome": "Outro", "login": "outro", "senha": "outro123", "papel": "operador"})
+    assert r.status_code in (200, 201), r.get_json()
+    b = app.test_client(); logar(b, "outro", "outro123")
+    assert b.get(f"/api/simulacoes/{sim_id}").status_code == 403
+    assert b.delete(f"/api/simulacoes/{sim_id}").status_code == 403
+    assert adm.delete(f"/api/simulacoes/{sim_id}").status_code == 200     # o administrador pode

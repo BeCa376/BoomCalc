@@ -1,9 +1,9 @@
 """
-Relatório da cena 3D: todos os objetos com tamanho, forma, peso, posição,
+Relatório da simulação (a cena 3D): todos os objetos com tamanho, forma, peso, posição,
 pontos de pega e se o guindaste consegue içar cada um — mais a imagem do
 radar e da vista 3D que o operador está vendo.
 
-POST /api/cena/relatorio   (login obrigatório)
+POST /api/cena/relatorio   (não exige login)
 Corpo: dados comuns da simulação (guindaste_id, acessorio_ids, massas da
 lingada, vento, terreno...), `objetos` (lista), `configuracao` (lança,
 ângulo, giro, raio, alturas e alcance da tela) e, opcionalmente,
@@ -26,8 +26,8 @@ from fpdf import FPDF
 
 from project.model import db
 from project.model.entities import Guindaste, Acessorio, ObjetoCena
-from project.controller.auth_controller import login_obrigatorio, usuario_atual
-from project.controller.simulacao_controller import avaliar, ErroSimulacao
+from project.controller.auth_controller import autenticacao_ativa, usuario_atual
+from project.controller.simulacao_controller import avaliar, ErroSimulacao, _inteiros
 from project.controller.relatorio_controller import _latin1, _num, STATUS, TERRENO, QUADRANTE
 from project.functions.utils import formatar_kg
 
@@ -251,11 +251,12 @@ def _pdf(dados, g, acessorios, objetos, img_radar, img_3d, usuario, img_2d=None)
     largura = pdf.w - 24
 
     pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 9, _latin1("BoomCalc - Relatório da cena"), new_x="LMARGIN", new_y="NEXT")
+    pdf.cell(0, 9, _latin1("BoomCalc - Relatório da simulação"), new_x="LMARGIN", new_y="NEXT")
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 5, _latin1(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')} por "
-                           f"{usuario.nome} ({usuario.login})  -  {len(objetos)} objeto(s) na cena"),
+    quem = f" por {usuario.nome} ({usuario.login})" if usuario else ""   # sem login: não há "quem"
+    pdf.cell(0, 5, _latin1(f"Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}{quem}"
+                           f"  -  {len(objetos)} objeto(s) na cena"),
              new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
 
@@ -406,7 +407,6 @@ def _csv(objetos):
 
 
 @bp.post("/relatorio")
-@login_obrigatorio
 def relatorio():
     dados = request.get_json(silent=True) or {}
     formato = (dados.get("formato") or "pdf").lower()
@@ -427,15 +427,18 @@ def relatorio():
         img_2d = _imagem(dados.get("imagem_2d"))
     except ErroCena as e:
         return jsonify({"erro": str(e)}), 400
-    ids = [int(i) for i in (dados.get("acessorio_ids") or [])]
+    try:
+        ids = _inteiros(dados.get("acessorio_ids"), "Acessórios")
+    except ErroSimulacao as e:
+        return jsonify({"erro": str(e)}), 400
     acessorios = Acessorio.query.filter(Acessorio.id.in_(ids)).all() if ids else []
 
-    eu = usuario_atual()
+    eu = usuario_atual() if autenticacao_ativa() else None   # sem login, o relatório não cita usuário
     conteudo = _pdf(dados, g, acessorios, objetos, img_radar, img_3d, eu, img_2d) if formato == "pdf" else _csv(objetos)
     pasta = current_app.config["RELATORIOS_DIR"]
     os.makedirs(pasta, exist_ok=True)
-    nome = f"cena_{eu.login}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{formato}"
+    nome = f"relatorio_simulacao_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{formato}"
     with open(os.path.join(pasta, nome), "wb") as f:
         f.write(conteudo)
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
-                     mimetype="application/pdf" if formato == "pdf" else "text/csv; charset=utf-8")
+                     mimetype="application/pdf" if formato == "pdf" else "text/csv")

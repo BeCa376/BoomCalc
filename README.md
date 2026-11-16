@@ -72,14 +72,13 @@ python app.py
 Acesse `http://localhost:5000` — o Flask já serve o `index.html` da raiz.
 A tela de cadastros fica em `http://localhost:5000/admin`.
 
-> **Banco já criado numa versão anterior?** O `seed.sql` mudou (tabela
-> `objeto_cena`, coluna `acessorio.soma_na_carga`, `resultado.mensagem` como
-> TEXT e senhas com hash). Rode o script de novo num banco limpo
-> (`DROP DATABASE boomcalc;` antes) — ele recria tudo. Para manter os dados,
-> rode só os `ALTER TABLE` de `migracoes/001_objetos_e_dimensoes.sql`
-> (objetos personalizados e dimensões do guindaste).
+> **Banco já criado numa versão anterior?** O `seed.sql` mudou várias vezes (tabela `objeto_cena`,
+> `acessorio.soma_na_carga`, `resultado.mensagem` como TEXT, senhas com hash e, por último, as colunas de
+> geometria e setores de `guindaste`: `altura_pe_lanca_m`, `recuo_pe_lanca_m`, `setor_frontal_graus` e
+> `giro_max_graus`). Rode o script de novo num banco limpo (`DROP DATABASE boomcalc;` antes) — ele recria
+> tudo. Sem as colunas novas o servidor não sobe (a mais recente é `simulacao.estado_json`: `ALTER TABLE simulacao ADD COLUMN estado_json TEXT NULL AFTER condicao_terreno;`). Os valores da geometria também podem ser editados em `/admin`.
 
-### Usuários de teste
+### Usuários de teste (só com `AUTENTICACAO_ATIVA=1`)
 
 O `seed.sql` cria dois usuários com senhas **de teste** (estão no comentário
 acima do `INSERT INTO usuario`):
@@ -134,25 +133,86 @@ Ou crie manualmente o arquivo `config/.env` preenchendo os valores necessários.
   pega** (1, 2 ou 4, distância entre pegas e linga). O editor mostra o volume,
   o ângulo da linga e a tração por perna; no 3D aparecem os pontos de pega e
   um contorno no chão com a cor do estado (verde/amarelo/vermelho/cinza).
-- **Relatório da cena** (PDF ou CSV, exige login): todos os objetos com forma,
+  A cena **começa sempre vazia** e os objetos existem só na página aberta (nada é gravado no banco).
+  Para voltar a salvá-los por usuário, ligue `PERSISTIR_OBJETOS = true` no início do `app.js`.
+- **Relatório da simulação** (PDF ou CSV, sem login; é o botão ao lado de "Adicionar objeto"): todos os objetos com forma,
   tamanho, volume, peso, posição, configuração da lança, capacidade, uso e
   status (recalculados no servidor com a tabela do banco), pontos de pega e
   tração por perna, mais as imagens do **radar** (com os nomes) e da **vista
   3D**, e uma página com as **dimensões do guindaste** (comprimento, largura,
   altura, abertura das patolas, lança, JIB, alcance e altura máximos), a
   configuração usada e a **vista lateral em escala**.
-- **Radar**: visão de cima com alcance, setor frontal, zonas de capacidade
-  da configuração atual, lança e objetos. Clique num objeto para selecionar
-  ou num espaço vazio para mover o objeto selecionado.
+- **Radar (no 3D)**: desenhado no chão da cena 3D, em volta do guindaste: zonas de
+  capacidade da configuração atual (verde até 80%, amarelo até 100%, vermelho acima ou
+  sem capacidade tabelada), anéis de distância e setor frontal (±16°). O 2D é só a vista
+  lateral do guindaste, para comparação. O relatório da simulação usa a mesma vista em planta.
 - **Acessórios** (moitão, linga etc., vindos do banco): somam massa na carga
   quando não estão já inclusos na tabela e reduzem a capacidade pelo fator
   de redução cadastrado.
 - **Condição do terreno** (firme / mole / não informado): fica salva na
   simulação e, se mole, a tela avisa para apoiar as patolas em pranchões.
-- **Login** (canto superior direito): salvar simulações, histórico, objetos
-  salvos no banco e relatórios exigem login; simular, não.
-- **Histórico** com **relatório em PDF ou CSV** de cada simulação salva (RF11).
+- **Login (trabalho futuro)**: desligado no protótipo — não há tela de login e salvar, histórico,
+  objetos, relatórios e `/admin` funcionam com um usuário padrão (o primeiro administrador).
+  O código de login e permissões já existe e é testado; para ligá-lo, defina
+  `AUTENTICACAO_ATIVA=1` em `config/.env`.
+- **Histórico** com, para cada simulação salva: o número da coluna **Simulação**, clicável (reabre a simulação do jeito que foi salva: modelo, lança,
+  ângulo, giro, cargas, acessórios, JIB, itens da lingada e pegas — o link é `./?simulacao=<id>`), **PDF** e **CSV**
+  (RF11) e a **lixeira** (apaga a simulação, o resultado e os relatórios gerados dela, inclusive os arquivos).
+  Simulações salvas numa versão antiga, sem essa "foto" da tela, abrem de forma aproximada (o giro não foi guardado).
 - **Alcance máximo** e **Ficha técnica**.
+
+## Instalador para Windows (para o professor testar)
+
+O BoomCalc também roda como programa comum, **sem MySQL**: o computador de quem testa guarda tudo num arquivo
+SQLite (`boomcalc.db`), criado sozinho na primeira vez com os mesmos dados do `seed.sql`. O servidor só escuta em
+`127.0.0.1` (este computador), então nada fica visível na rede ou na internet, e não há tela de login.
+
+- **Instalar:** duplo clique em `BoomCalc-Setup.exe` (instala só para o usuário, não pede administrador).
+  Cria o atalho no Menu Iniciar (e, se marcado, na área de trabalho). Abre uma janela preta que é o programa
+  rodando; o navegador abre sozinho. Para encerrar, feche a janela.
+- **Dados:** `%LOCALAPPDATA%\BoomCalc` (banco, relatórios e log). Continuam ao reiniciar.
+- **Desinstalar:** *Configurações > Aplicativos* ou Menu Iniciar > *Desinstalar o BoomCalc*. O desinstalador fecha o
+  programa se estiver aberto, remove tudo e **pergunta** se também apaga as simulações salvas.
+- **Aviso do Windows:** como o programa não tem assinatura paga, o SmartScreen pode avisar na 1ª vez:
+  "Mais informações" > "Executar assim mesmo". Há um guia curto em `empacotar/LEIA-ME-professor.txt`.
+
+**Como gerar o `BoomCalc-Setup.exe`** (o `.exe` só pode ser feito no Windows):
+
+1. *Pelo GitHub, sem Windows:* aba **Actions** > **Instalador do Windows** > **Run workflow**. Ele gera o instalador e
+   **testa num Windows de verdade** (abre o programa, salva uma simulação, gera PDF, instala, abre e desinstala).
+   Baixe o arquivo em *Artifacts*.
+2. *Num PC com Windows:* instale Python 3.12 e Inno Setup 6 e dê duplo clique em `empacotar\gerar_windows.bat`.
+   O resultado fica em `empacotar\saida\BoomCalc-Setup.exe`.
+
+Antes de gerar, `empacotar/verificar_antes_de_empacotar.py` confere que **não há senha de banco escrita no código**
+(`config/env.py` com padrão `""`; a senha real vai só em `config/.env`), porque o código vai dentro do executável.
+O `launcher.py` é o ponto de entrada (opções `--no-browser`, `--port` e `--datadir`, para testes). Se uma versão
+futura acrescentar colunas, o arquivo SQLite que o professor já tiver não é migrado: ele deve desinstalar apagando os dados.
+
+### Geometria, setores e giro (dados da empresa)
+
+Valores da planilha "Informações gerais - içamento", guardados no banco (`guindaste`) e usados pela tela e
+pelo servidor:
+
+| | TM 130 | MD 300L |
+|---|---|---|
+| Altura do pé da lança | 2,8 m | 3,0 m |
+| Recuo do pé da lança (atrás do eixo de giro) | 0 | 1,4 m |
+| Setor frontal | Zona 1 = 32° (±16°) | Figura A = 110° (±55°) |
+| Lateral/traseira | resto, até o giro máximo | Figura B = 250° (resto) |
+| Giro máximo p/ cada lado | ±60° (120° no total) | livre (±180°) |
+
+O **raio é medido a partir do eixo de giro**: `raio = recuo·(−1) + lança·cos(ângulo) [+ JIB·cos(ângulo do JIB)]`.
+Conferido com o exemplo da figura da empresa (MD 300L, lança 32,1 m a 53°, JIB 9 m a 10°): raio 24,5 m
+(figura: 25,0 m) e altura 34,8 m (figura: 34,7 m). Giro além do máximo do modelo é recusado (RN06).
+
+### Itens da lingada (manilhas, cintas e outros)
+
+Painel "Itens da lingada" na tela de simulação. Escolha **Manilha** (16 tamanhos), **Cinta plana** (11) ou
+**Cinta tubular** (18) do catálogo da empresa, ou **Personalizado** (nome e massa). A massa dos itens é
+**somada à massa da lingada**. Para as cintas, `massa = peso do 1º metro + comprimento × peso do metro adicional`
+(a mesma fórmula da planilha). O catálogo está em `project/data/catalogo_lingada.json` e é servido por
+`GET /api/catalogo/lingada`. Os itens existem só na página aberta.
 
 ### Cadastros (`/admin`, só administrador)
 
@@ -160,7 +220,7 @@ Ou crie manualmente o arquivo `config/.env` preenchendo os valores necessários.
 - **Acessórios**: massa, fator de redução e se soma na carga.
 - **Guindastes**: capacidade nominal, limites de lança e ângulo, JIB e
   dimensões do equipamento (comprimento, largura, altura e abertura das
-  patolas), que aparecem no relatório da cena.
+  patolas), que aparecem no relatório da simulação.
 - **Tabela de capacidade**: adicionar e remover pontos por quadrante e
   comprimento de lança. É aqui que a empresa lança os valores **oficiais**
   do catálogo (ex.: a área lateral/traseira do MD 300L, que ainda falta).
@@ -175,19 +235,22 @@ Servida pelo `app.py`, a página usa:
 - `POST /api/simular/alcance-maximo`
 - `GET /api/historico`: aba Histórico (do usuário logado)
 - `GET /api/simulacoes/<id>/relatorio?formato=pdf|csv`: relatório (RF11)
-- `POST /api/cena/relatorio`: relatório da cena (objetos, radar, 3D e guindaste)
+- `GET /api/simulacoes/<id>`: dados da simulação + `estado` (foto da tela) para reabri-la; `DELETE` na mesma rota exclui
+- `POST /api/cena/relatorio`: relatório da simulação (objetos, radar, 3D e guindaste; não exige login)
 - `GET /api/acessorios`, `POST /api/auth/login`, `POST /api/auth/logout`,
   `GET /api/auth/me`
-- `GET|POST /api/objetos`, `PUT|DELETE /api/objetos/<id>`: objetos da cena
+- `GET /api/catalogo/lingada`: manilhas e cintas (massas) da planilha da empresa
+- `GET|POST /api/objetos`, `PUT|DELETE /api/objetos/<id>`: objetos da cena (a tela não os usa enquanto `PERSISTIR_OBJETOS = false` no `app.js`; ver abaixo)
 - `/api/admin/...`: cadastros (usuários, acessórios, guindastes, tabela)
 
 Abrindo o `index.html` direto, sem servidor, tudo funciona só com o cálculo
 local e a tela avisa que está offline.
 
-> O cálculo **local** da tela (desenho, radar, cores dos objetos) usa as
-> curvas embutidas no `app.js`; a validação **oficial** é a do servidor, que
-> usa a tabela do banco e aparece abaixo do resultado. Se a empresa cadastrar
-> pontos novos em `/admin`, o servidor passa a usá-los na hora.
+> O cálculo **local** da tela (resposta imediata, radar, cores dos objetos) usa a **mesma tabela do
+> banco e a mesma regra** do servidor (comprimento de lança tabelado imediatamente superior,
+> interpolação, sem extrapolar o raio). A validação **oficial**, que também é a única registrada, é a do
+> servidor e aparece abaixo do resultado. As curvas embutidas no `app.js` só valem com o servidor offline.
+> Se a empresa cadastrar pontos novos em `/admin`, o servidor passa a usá-los na hora e a tela, ao recarregar a página.
 
 ## Pendências / a confirmar com a empresa
 

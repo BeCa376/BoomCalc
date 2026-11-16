@@ -21,3 +21,8 @@ config/.env
 
 # Relatórios gerados pela aplicação (RF11)
 relatorios/
+
+build/
+dist/
+.venv-empacotar/
+empacotar/saida/

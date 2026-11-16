@@ -8,11 +8,13 @@ Roda o servidor Flask e serve:
   - "/api/*"        -> rotas definidas em project/controller
 """
 import os
+import sys
 from flask import send_from_directory
 from project import create_app
 
 app = create_app()
-RAIZ = os.path.dirname(os.path.abspath(__file__))
+# Na versão executável (PyInstaller) os arquivos do front ficam na pasta temporária do pacote (sys._MEIPASS).
+RAIZ = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
 
 
 @app.get("/")

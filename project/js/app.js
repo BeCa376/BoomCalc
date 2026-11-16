@@ -2,7 +2,8 @@ const MODELS = {
   TM130: {
     label:"TM 130", sub:"Lança 5,9–12,4 m · pé direito baixo",
     minLen:5.9, maxLen:12.4, minAngle:0, maxAngle:70,
-    baseHeight:1.6, baseOffset:1.2, capNominal:26000, approx:false, jib:false,
+    baseHeight:2.8, baseOffset:0, frontalHalf:16, slewMax:60,   // planilha da empresa; online, vêm do banco
+    capNominal:26000, approx:false, jib:false,
     zones:{
       frontal:{points:[[0,3000],[10,3100],[20,3200],[30,3300],[35,3500],[55,3800],[70,3800]]},
       lateral:{points:[[0,2100],[10,2150],[20,2200],[30,2300],[35,2550],[40,2700],[45,2900],[50,3300],[55,3500],[60,3700],[65,3700],[70,3800]]}
@@ -13,7 +14,8 @@ const MODELS = {
   MD300L: {
     label:"MD 300L", sub:"Lança 10,5–32,1 m · com JIB",
     minLen:10.5, maxLen:32.1, minAngle:0, maxAngle:82,
-    baseHeight:2.0, baseOffset:1.5, capNominal:30000, approx:true, jib:true, jibLances:[9,15,20],
+    baseHeight:3.0, baseOffset:-1.4, frontalHalf:55, slewMax:180,   // recuo de 1,4 m: o pé da lança fica ATRÁS do eixo de giro
+    capNominal:30000, approx:true, jib:true, jibLances:[9,15,20],
     capFn:function(length, radius, quad){
       const anchors={10.5:[3.0,30000],14.1:[3.5,20000],17.7:[4.0,16000],21.3:[4.5,12000],24.9:[6.0,11500],28.5:[7.0,9000],32.1:[8.0,7000]};
       const lens=Object.keys(anchors).map(Number).sort((a,b)=>a-b);
@@ -86,7 +88,7 @@ document.querySelectorAll("#viewToggle button").forEach(btn=>{
     if(is3d){
       const first = !three3d;
       init3D();
-      requestAnimationFrame(()=>{ resize3D(); if(first) frame3D(); update3D(); render3D(); });
+      requestAnimationFrame(()=>{ resize3D(); if(first) frame3D(); syncObjects3D(); update3D(); render3D(); });   // syncObjects3D: cria as peças 3D dos objetos adicionados enquanto estava no 2D
     }
   });
 });
@@ -107,6 +109,7 @@ function buildModelSwitch(){
 function onModelChange(){
   const m=MODELS[current];
   angleSlider.min=m.minAngle; angleSlider.max=m.maxAngle;
+  slewSlider.min=-m.slewMax; slewSlider.max=m.slewMax;       // TM 130 só gira ±60°
   angle=Math.min(angle,m.maxAngle);
   len=m.minLen+(m.maxLen-m.minLen)*0.4;
   slew=0;
@@ -230,7 +233,9 @@ function computeRigging(tipHeight, peso){
   return out;
 }
 
-function quadrantFromSlew(s){ return Math.abs(s)<=16 ? "frontal" : "lateral"; }
+/* setor frontal do modelo: TM 130 = ±16° (Zona 1); MD 300L = ±55° (Figura A, 110°) */
+function quadrantFromSlew(s){ return Math.abs(s) <= MODELS[current].frontalHalf ? "frontal" : "lateral"; }
+function clampSlew(){ const mx = MODELS[current].slewMax; if(slew > mx) slew = mx; if(slew < -mx) slew = -mx; }
 
 function computeGeometry(){
   const m=MODELS[current];
@@ -258,18 +263,42 @@ function accessoryEffect(){
   return {massa, fator, ids};
 }
 
+/* ---------- capacidade pela tabela do banco ----------
+   Mesma regra do servidor (RN05/RN06): usa o comprimento de lança tabelado imediatamente
+   superior ao atual (lado seguro), interpola por ângulo ou por raio e NÃO extrapola o raio.
+   Sem a tabela (servidor offline) devolve null e vale a curva aproximada embutida em MODELS. */
+function capFromTable(key, quad, length, angle, radius){
+  const t = API.tables[key]; if(!t) return null;
+  const rows = t[quad==="frontal" ? "frontal" : "lateral_traseira"] || [];
+  if(!rows.length) return 0;                                  // quadrante sem dados: sem capacidade (RN05)
+  const L0 = +length.toFixed(2);
+  const comps = [...new Set(rows.map(r=>r.comprimento_lanca_m))].sort((a,b)=>a-b);
+  const acima = comps.filter(c=>c>=L0);
+  const L = acima.length ? acima[0] : comps[comps.length-1];
+  const sel = rows.filter(r=>r.comprimento_lanca_m===L);
+  if(sel[0].angulo_graus!==null) return interp(sel.map(r=>[r.angulo_graus, r.capacidade_kg]), +angle.toFixed(2));
+  const pts = sel.map(r=>[r.raio_m, r.capacidade_kg]), R = +radius.toFixed(2);
+  if(R > Math.max(...pts.map(q=>q[0]))) return 0;            // além do maior raio tabelado
+  return interp(pts, R);
+}
+/* capacidade tabelada (sem fator de acessórios) para lança L, ângulo a e raio R */
+function capBase(L, a, R, quad){
+  const m = MODELS[current], t = capFromTable(current, quad, L, a, R);
+  if(t!==null) return t;
+  return current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(L, R, quad);
+}
+
 function computeCapacity(){
   const m=MODELS[current];
   const quad=quadrantFromSlew(slew);
   const geo=computeGeometry();
-  let cap;
-  if(current==="TM130"){ cap=interp(m.zones[quad].points, angle); }
-  else{ cap=m.capFn(len, geo.radius, quad); }
+  const cap = capBase(len, angle, geo.radius, quad);
   return {cap: cap*accessoryEffect().fator, quad, geo};
 }
 
 function update(){
   const m=MODELS[current];
+  clampSlew();
   syncAttachedFromFields();
   const jibActive=document.getElementById("useJib").checked && m.jib;
   angleSlider.min=minAngleCur();
@@ -287,7 +316,7 @@ function update(){
 
   const {cap, quad, geo}=computeCapacity();
   const carga=Number(document.getElementById("loadCarga").value)||0;
-  const lingada=Number(document.getElementById("loadLingada").value)||0;
+  const lingada=lingadaTotal();   // campo + itens da lingada
   const cabo=Number(document.getElementById("loadCabo").value)||0;
   const balOn=document.getElementById("useBalancim").checked;
   const bal=balOn ? (Number(document.getElementById("loadBalancim").value)||0) : 0;
@@ -297,6 +326,7 @@ function update(){
   /* Carga acima da capacidade nominal do equipamento não é uma operação
      "insegura": é um dado irreal (ex.: 250 t num guindaste de 30 t). */
   const irreal=sum>m.capNominal;
+  const semCap = sum>0 && cap<=0;   // RN05: raio fora da tabela ou quadrante sem dados
   const ventoTxt=document.getElementById("loadVento").value;
   const vento = ventoTxt==="" ? null : Number(ventoTxt);
   const ventoAlto = vento!==null && vento>LIMITE_VENTO_MS;
@@ -330,6 +360,8 @@ function update(){
     color="var(--danger)"; label="Operação insegura"; sub=`Vento de ${fmt(vento)} m/s acima do limite de ${fmt(LIMITE_VENTO_MS)} m/s.`; barColor="var(--danger)";
   } else if(irreal){
     color="var(--danger)"; label="Carga fora da realidade"; sub=`A soma das cargas (${fmt(sum/1000,1)} t) passa da capacidade nominal do ${m.label} (${fmt(m.capNominal/1000,0)} t). Confira o peso informado.`; barColor="var(--danger)";
+  } else if(semCap){
+    color="var(--danger)"; label="Sem capacidade tabelada"; sub="RN05: não há capacidade tabelada para este ponto (raio fora da tabela ou quadrante sem dados). A operação não pode ser validada."; barColor="var(--danger)";
   } else if(pct<=80){
     color="var(--safe)"; label="Operação segura"; sub=`Usando ${pct.toFixed(1)}% da capacidade disponível`; barColor="var(--safe)";
   } else if(pct<=100){
@@ -339,12 +371,12 @@ function update(){
   }
   const statusBox=document.getElementById("statusBox");
   statusBox.style.borderColor = sum<=0 ? "var(--line)" : color;
-  statusBox.style.background = sum<=0 ? "var(--panel)" : (irreal||ventoAlto) ? "var(--danger-bg)" : (pct<=80?"var(--safe-bg)":pct<=100?"var(--warn-bg)":"var(--danger-bg)");
+  statusBox.style.background = sum<=0 ? "var(--panel)" : (irreal||ventoAlto||semCap) ? "var(--danger-bg)" : (pct<=80?"var(--safe-bg)":pct<=100?"var(--warn-bg)":"var(--danger-bg)");
   document.getElementById("statusDot").style.background=color;
   document.getElementById("statusMain").textContent=label;
   document.getElementById("statusMain").style.color = sum<=0 ? "var(--text)" : color;
   document.getElementById("statusSub").textContent=sub;
-  document.getElementById("barFill").style.width=Math.min(pct,130)+"%";
+  document.getElementById("barFill").style.width=(semCap?100:Math.min(pct,130))+"%";
   document.getElementById("barFill").style.background=barColor;
 
   const gs=document.getElementById("globalStatus");
@@ -361,6 +393,7 @@ function drawCrane(geo, quad, rig){
   const m=MODELS[current];
   const W=640,H=380, groundY=320, baseX=110, scale=7.6;
   const pivotX=baseX, pivotY=groundY-m.baseHeight*scale;
+  const axisX=pivotX-m.baseOffset*scale;      // eixo de giro: de onde o raio é medido
   const rad=angle*Math.PI/180;
   const tipX=pivotX+len*scale*Math.cos(rad), tipY=pivotY-len*scale*Math.sin(rad);
   let jibTipX=tipX, jibTipY=tipY;
@@ -375,10 +408,11 @@ function drawCrane(geo, quad, rig){
     <line x1="16" y1="${groundY}" x2="${W-16}" y2="${groundY}" stroke="${lineDim}" stroke-width="1.5"/>
     <text x="20" y="${groundY+16}" fill="#5c6774" font-size="10" font-family="IBM Plex Mono">SOLO</text>
 
-    <line x1="${pivotX}" y1="${groundY+8}" x2="${tipX}" y2="${groundY+8}" stroke="${quadColor}" stroke-width="1.5" stroke-dasharray="4 3"/>
-    <line x1="${pivotX}" y1="${groundY+3}" x2="${pivotX}" y2="${groundY+13}" stroke="${quadColor}" stroke-width="1.5"/>
-    <line x1="${tipX}" y1="${groundY+3}" x2="${tipX}" y2="${groundY+13}" stroke="${quadColor}" stroke-width="1.5"/>
-    <text x="${(pivotX+tipX)/2-34}" y="${groundY+27}" fill="${quadColor}" font-size="11" font-family="IBM Plex Mono" font-weight="600">${fmt(geo.radius)} m</text>
+    <line x1="${axisX}" y1="${groundY+8}" x2="${jibTipX}" y2="${groundY+8}" stroke="${quadColor}" stroke-width="1.5" stroke-dasharray="4 3"/>
+    <line x1="${axisX}" y1="${groundY+3}" x2="${axisX}" y2="${groundY+13}" stroke="${quadColor}" stroke-width="1.5"/>
+    <line x1="${jibTipX}" y1="${groundY+3}" x2="${jibTipX}" y2="${groundY+13}" stroke="${quadColor}" stroke-width="1.5"/>
+    <text x="${axisX-14}" y="${groundY+27}" fill="#5c6774" font-size="9" font-family="IBM Plex Mono">eixo</text>
+    <text x="${(axisX+jibTipX)/2-34}" y="${groundY+27}" fill="${quadColor}" font-size="11" font-family="IBM Plex Mono" font-weight="600">${fmt(geo.radius)} m</text>
 
     <rect x="${baseX-90}" y="${groundY-42}" width="140" height="42" rx="2" fill="#3a434e"/>
     <rect x="${baseX-90}" y="${groundY-62}" width="50" height="24" rx="2" fill="#828d99"/>
@@ -461,7 +495,7 @@ function solveMaxRadiusForWeight(weight){
       const jRad=jibAbsRad(radAngle);
       radius+=jl*Math.cos(jRad); height+=jl*Math.sin(jRad);
     }
-    let cap = (current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(len, radius, quad)) * accessoryEffect().fator;
+    let cap = capBase(len, a, radius, quad) * accessoryEffect().fator;
     if(cap>=weight){ if(!best || radius>best.radius){ best={angle:a, radius, height, cap}; } }
   }
   return best;
@@ -491,6 +525,7 @@ document.getElementById("reverseBtn").addEventListener("click", ()=>{
     angle=best.angle; syncSliders();
     document.getElementById("loadCarga").value=w;
     document.getElementById("loadLingada").value=0;
+    lingadaItens = []; renderItens();   // o peso informado já é o total
     document.getElementById("loadCabo").value=0;
     document.getElementById("useBalancim").checked=false;
     document.getElementById("loadBalancim").value=0;
@@ -556,44 +591,71 @@ function init3D(){
   scene.add(new THREE.GridHelper(60, 30, 0x3a434e, 0x232a32));
 
   const chassisMat = new THREE.MeshStandardMaterial({color:0x3a434e, roughness:0.6, metalness:0.2});
-  const cabMat     = new THREE.MeshStandardMaterial({color:0x828d99, roughness:0.5});
+  const cabMat     = new THREE.MeshStandardMaterial({color:0x6f7a87, roughness:0.5});
+  const rigMat     = new THREE.MeshStandardMaterial({color:0x4a535e, roughness:0.6, metalness:0.3});   // aros e patolas
+  const padMat     = new THREE.MeshStandardMaterial({color:0x2b333c, roughness:0.8});
   const wheelMat   = new THREE.MeshStandardMaterial({color:0x0e1114, roughness:0.9});
   const boomMat    = new THREE.MeshStandardMaterial({color:0x5b9bd1, roughness:0.35, metalness:0.35});
   const jibMat     = new THREE.MeshStandardMaterial({color:0x828d99, roughness:0.4, metalness:0.25});
   const hookMat    = new THREE.MeshStandardMaterial({color:0xf2a900, roughness:0.3, metalness:0.5});
 
   const truck = new THREE.Group();
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(6,1.1,2.4), chassisMat);
-  chassis.position.set(0,0.85,0); truck.add(chassis);
-  const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6,1.2,2.2), cabMat);
-  cab.position.set(-3.4,1.5,0); truck.add(cab);
-  const wheelGeo = new THREE.CylinderGeometry(0.55,0.55,0.5,20);
-  [[-2.2,-1.35],[-2.2,1.35],[1.6,-1.35],[1.6,1.35],[2.6,-1.35],[2.6,1.35]].forEach(([x,z])=>{
+  /* Carroceria no mesmo desenho do 2D: corpo escuro, cabine cinza na frente, 3 eixos de rodas com aro
+     e patolas. As medidas em x são relativas ao pé da lança (x = 0), como no 2D; o grupo é deslocado
+     em update3D() para o pé da lança do modelo atual. Só o visual muda: a geometria do cálculo
+     (altura e posição do pé da lança, eixo de giro) continua em MODELS. */
+  const bodyGroup = new THREE.Group();
+  truck.add(bodyGroup);
+  const X0 = -4.5, X1 = 2.5, BW = 2.5, Y0 = 0.55, Y1 = 1.4;           // corpo: comprimento 7 m, topo em 1,4 m
+  const chassis = new THREE.Mesh(new THREE.BoxGeometry(X1-X0, Y1-Y0, BW), chassisMat);
+  chassis.position.set((X0+X1)/2, (Y0+Y1)/2, 0); bodyGroup.add(chassis);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(2.5, 1.25, 2.3), cabMat);
+  cab.position.set(X0+1.25, Y1+0.6, 0); bodyGroup.add(cab);               // sobre o corpo, na frente
+  const wheelGeo = new THREE.CylinderGeometry(0.7, 0.7, 0.5, 28);
+  const hubGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.56, 20);
+  [-3.25, 1.25, 2.4].forEach(x=>[-1,1].forEach(side=>{                    // eixos do 2D: -65, +25 e +48 px
     const wheel = new THREE.Mesh(wheelGeo, wheelMat);
-    wheel.rotation.z = Math.PI/2;
-    wheel.position.set(x,0.55,z);
-    truck.add(wheel);
+    wheel.rotation.x = Math.PI/2; wheel.position.set(x, 0.7, side*1.45); bodyGroup.add(wheel);
+    const hub = new THREE.Mesh(hubGeo, rigMat);
+    hub.rotation.x = Math.PI/2; hub.position.copy(wheel.position); bodyGroup.add(hub);
+  }));
+  [-1.6, 3.4].forEach(x=>{                                                 // patolas: viga, macacos e sapatas
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 5.4), rigMat);
+    beam.position.set(x, 0.75, 0); bodyGroup.add(beam);
+    [-1,1].forEach(side=>{
+      const jack = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.6, 0.22), rigMat);
+      jack.position.set(x, 0.42, side*2.55); bodyGroup.add(jack);
+      const pad = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.1, 0.8), padMat);
+      pad.position.set(x, 0.05, side*2.55); bodyGroup.add(pad);
+    });
   });
+  const rearFrame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.3, 0.6), rigMat);   // liga a patola traseira ao corpo
+  rearFrame.position.set(X1+0.4, 0.75, 0); bodyGroup.add(rearFrame);
   scene.add(truck);
 
   const turret = new THREE.Group();
   turret.position.set(SLEW_AXIS_X, TURRET_Y, 0);
   truck.add(turret);
-  const turretBase = new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,0.55,24), chassisMat);
+  const turretBase = new THREE.Mesh(new THREE.CylinderGeometry(1.0,1.0,0.55,28), chassisMat);   // anel de giro
   turretBase.position.y=0.28; turret.add(turretBase);
+  const superstructure = new THREE.Mesh(new THREE.BoxGeometry(1,1,1), cabMat);                 // carcaça até o pé da lança
+  turret.add(superstructure);
 
   const boomPivot = new THREE.Group();
   boomPivot.position.set(0, 0.65, 0);
   turret.add(boomPivot);
 
-  const boomGeo = new THREE.BoxGeometry(1,0.32,0.32);
+  const pivotHub = new THREE.Mesh(new THREE.CylinderGeometry(0.42,0.42,0.7,24), cabMat);   // círculo cinza do pé da lança
+  pivotHub.rotation.x = Math.PI/2; boomPivot.add(pivotHub);
+
+  const boomGeo = new THREE.BoxGeometry(1,0.45,0.45);
   boomGeo.translate(0.5,0,0);
   const boom = new THREE.Mesh(boomGeo, boomMat);
   boomPivot.add(boom);
 
   const jibPivot = new THREE.Group();
   boomPivot.add(jibPivot);
-  const jibGeo = new THREE.BoxGeometry(1,0.16,0.16);
+  const jibGeo = new THREE.BoxGeometry(1,0.22,0.22);
   jibGeo.translate(0.5,0,0);
   const jib = new THREE.Mesh(jibGeo, jibMat);
   jibPivot.add(jib);
@@ -635,12 +697,21 @@ function init3D(){
   const reachRing = new THREE.Line(circleGeo, new THREE.LineDashedMaterial({color:0x5c6774, dashSize:0.6, gapSize:0.4}));
   radiusRing.position.set(SLEW_AXIS_X, 0.03, 0); reachRing.position.set(SLEW_AXIS_X, 0.02, 0);
   scene.add(radiusRing); scene.add(reachRing);
+  /* radar no chão: zonas de capacidade, anéis de distância e setor frontal em volta do guindaste */
+  const radarCanvas = document.createElement("canvas"); radarCanvas.width = radarCanvas.height = 1024;
+  const radarTexture = new THREE.CanvasTexture(radarCanvas);
+  const radarGround = new THREE.Mesh(new THREE.PlaneGeometry(2,2),
+    new THREE.MeshBasicMaterial({map:radarTexture, transparent:true, depthWrite:false}));
+  radarGround.rotation.x = -Math.PI/2;                 // canvas: x -> mundo x, y -> mundo z (igual ao radar 2D)
+  radarGround.position.set(SLEW_AXIS_X, 0.015, 0);
+  scene.add(radarGround);
   const hookMarker = new THREE.Mesh(new THREE.RingGeometry(0.25,0.4,24), new THREE.MeshBasicMaterial({color:0xf2a900, side:THREE.DoubleSide}));
   hookMarker.rotation.x = -Math.PI/2;
   scene.add(hookMarker);
 
   three3d = {renderer, scene, camera, turret, boomPivot, boom, jibPivot, jib, hookAnchor, hook, loadGroup, loadBox, slings,
-             objectsGroup, objMeshes:{}, decorGroup, objDecor:{}, radiusRing, reachRing, hookMarker};
+             objectsGroup, objMeshes:{}, decorGroup, objDecor:{}, radiusRing, reachRing, hookMarker,
+             radarCanvas, radarTexture, radarGround, bodyGroup, superstructure};
 
   const raycaster = new THREE.Raycaster();
   const ndc = new THREE.Vector2();
@@ -791,6 +862,11 @@ function update3D(rig=lastRig){
   three3d.turret.rotation.y = -slew*Math.PI/180;
   // pé da lança na mesma posição usada no cálculo do raio/altura
   three3d.boomPivot.position.set(m.baseOffset, m.baseHeight-TURRET_Y, 0);
+  three3d.bodyGroup.position.x = SLEW_AXIS_X + m.baseOffset;
+  /* carcaça: cobre do anel de giro até logo abaixo do pino da lança e do eixo de giro até o pé da lança */
+  const sx0 = Math.min(m.baseOffset-0.45, -0.95), sx1 = 0.95, sh = Math.max(0.2, (m.baseHeight-TURRET_Y)-0.1-0.55);
+  three3d.superstructure.scale.set(sx1-sx0, sh, 1.9);
+  three3d.superstructure.position.set((sx0+sx1)/2, 0.55+sh/2, 0);      // carroceria referenciada ao pé da lança (como no 2D)
   three3d.boomPivot.rotation.z = angle*Math.PI/180;
   three3d.boom.scale.x = len;
   three3d.jibPivot.position.x = len;
@@ -805,6 +881,21 @@ function update3D(rig=lastRig){
     three3d.hookAnchor.position.x = 0;
   }
   updateLoad3D(rig);
+  updateGroundRadar();
+}
+
+/* redesenha o radar do chão só quando algo que o altera mudou (lança, carga, JIB, acessórios, objetos) */
+var groundSig = "";
+function updateGroundRadar(){
+  if(!three3d || viewMode!=="3d") return;
+  const {range} = radarRange();
+  const sig = [current, len.toFixed(2), currentWeight(), jibLenCur(), jibPin, accessoryEffect().fator,
+               API.tables[current] ? 1 : 0, range.toFixed(1)].join("|");
+  if(sig === groundSig) return;
+  groundSig = sig;
+  drawRadar(three3d.radarCanvas, {size:1024, ground:true});
+  three3d.radarTexture.needsUpdate = true;
+  three3d.radarGround.scale.set(range, range, 1);
 }
 
 function updateLoad3D(rig){
@@ -849,7 +940,10 @@ function render3D(){
    de cada guindaste vêm do banco, cada mudança é validada pelo servidor
    (RN01–RN08) e dá para salvar a simulação e ver o histórico. Sem servidor
    (ex.: abrir o index.html direto), tudo continua funcionando só no local. */
-const API = { online:false, ids:{}, labels:{}, user:null };
+/* Objetos da cena: com false eles existem só na página aberta (a cena começa sempre vazia e nada é
+   gravado no banco). Com true voltam a ser salvos/carregados por usuário — pensado para quando o login existir. */
+const PERSISTIR_OBJETOS = false;
+const API = { online:false, ids:{}, labels:{}, user:null, tables:{}, catalogo:null };
 const API_MODEL_KEYS = { "TM 130":"TM130", "MD 300L":"MD300L" };
 const STATUS_LABEL = { seguro:"seguro", proximo_limite:"próximo do limite", inseguro:"inseguro" };
 
@@ -867,18 +961,28 @@ async function apiInit(){
       m.capNominal = g.capacidade_maxima_kg;
       m.minLen = g.comprimento_lanca_min_m; m.maxLen = g.comprimento_lanca_max_m;
       m.minAngle = g.angulo_min_graus;      m.maxAngle = g.angulo_max_graus;
+      if(g.altura_pe_lanca_m!=null) m.baseHeight = g.altura_pe_lanca_m;
+      if(g.recuo_pe_lanca_m!=null)  m.baseOffset = -g.recuo_pe_lanca_m;   // recuo = pé da lança atrás do eixo de giro
+      m.frontalHalf = g.setor_frontal_graus/2; m.slewMax = g.giro_max_graus;
     });
+    for(const k of Object.keys(API.ids)){
+      try{ API.tables[k] = await (await fetch(`api/guindastes/${API.ids[k]}/tabela-capacidade`)).json(); }
+      catch(e){ delete API.tables[k]; }
+    }
     API.online = true;
   }catch(e){
     API.online = false;
   }
   if(API.online){
     try{ ACESSORIOS = await (await fetch("api/acessorios")).json(); }catch(e){ ACESSORIOS = []; }
+    try{ API.catalogo = await (await fetch("api/catalogo/lingada")).json(); }catch(e){ API.catalogo = null; }
     try{ API.user = await (await fetch("api/auth/me")).json(); }catch(e){ API.user = null; }
   }
   renderAccessories();
+  itInit();
   onModelChange();
   onAuthChange();
+  restoreFromUrl();
 }
 
 function renderAccessories(){
@@ -894,7 +998,7 @@ function renderAccessories(){
 function onAuthChange(){
   const box = document.getElementById("userBox");
   const u = API.user;
-  if(!API.online){ box.innerHTML = ""; }
+  if(!API.online || (u && u.autenticacao===false)){ box.innerHTML = ""; }   // login desligado: sem Entrar/Sair
   else if(!u){ box.innerHTML = `<button id="loginOpen">Entrar</button>`; document.getElementById("loginOpen").onclick = openLogin; }
   else {
     box.innerHTML = `<b>${u.nome}</b>${u.papel==="administrador" ? ` · <a href="admin">Cadastros</a>` : ""} · <button id="logoutBtn">Sair</button>`;
@@ -907,7 +1011,7 @@ function onAuthChange(){
   save.disabled = !(API.online && u);
   save.title = !API.online ? "Servidor offline" : !u ? "Entre para salvar simulações" : "";
   loadHistory();
-  if(API.online && u) loadObjectsFromServer();
+  if(PERSISTIR_OBJETOS && API.online && u) loadObjectsFromServer();
   scheduleApiCheck();
 }
 function openLogin(){
@@ -940,7 +1044,7 @@ function apiPayload(salvar){
     angulo_giro_graus: slew,
     raio_operacao_m: +computeGeometry().radius.toFixed(2),
     peso_carga_kg: num("loadCarga"),
-    massa_lingada_kg: num("loadLingada"),
+    massa_lingada_kg: lingadaTotal(),
     massa_cabo_kg: num("loadCabo"),
     usa_balancim: document.getElementById("useBalancim").checked,
     massa_balancim_kg: num("loadBalancim"),
@@ -949,6 +1053,7 @@ function apiPayload(salvar){
     comprimento_carga_m: rig.C || null, largura_carga_m: rig.L || null, altura_carga_m: rig.A || null,
     acessorio_ids: accessoryEffect().ids,
     condicao_terreno: document.getElementById("terreno").value,
+    estado: salvar ? snapshotState() : undefined,     // foto completa da tela, para reabrir a simulação como estava
     salvar: !!salvar,
   };
 }
@@ -1018,12 +1123,12 @@ async function loadHistory(){
     const lista = await r.json();
     if(!r.ok) throw new Error(lista.erro || r.status);
     note.textContent = lista.length ? "" : "Nenhuma simulação salva ainda — use \"Salvar simulação\" na aba Simulação.";
-    table.innerHTML = lista.length ? `<tr><th>#</th><th>Data</th><th>Guindaste</th><th>Lança</th><th>Ângulo</th><th>Raio</th><th>Quadrante</th><th>Uso</th><th>Status</th><th>Relatório</th></tr>` +
-      lista.map(s=>`<tr><td>${s.id}</td><td>${s.data_simulacao ? new Date(s.data_simulacao).toLocaleString("pt-BR") : "–"}</td>
+    table.innerHTML = lista.length ? `<tr><th>Simulação</th><th>Data</th><th>Guindaste</th><th>Lança</th><th>Ângulo</th><th>Raio</th><th>Quadrante</th><th>Uso</th><th>Status</th><th>Ações</th></tr>` +
+      lista.map(s=>`<tr><td class="histId"><a href="./?simulacao=${s.id}" title="Abrir a simulação #${s.id} do jeito que foi salva">${s.id}</a></td><td>${s.data_simulacao ? new Date(s.data_simulacao).toLocaleString("pt-BR") : "–"}</td>
         <td>${API.labels[s.guindaste_id]||s.guindaste_id}</td><td>${fmt(s.comprimento_lanca_m)} m</td><td>${fmt(s.angulo_graus,0)}°</td>
         <td>${fmt(s.raio_operacao_m)} m</td><td>${s.quadrante==="frontal"?"frontal":"lateral/tras."}</td>
         <td>${s.percentual_utilizado!=null ? fmt(s.percentual_utilizado,1)+"%" : "–"}</td><td>${STATUS_LABEL[s.status]||"–"}</td>
-        <td><a href="api/simulacoes/${s.id}/relatorio?formato=pdf" download>PDF</a><a href="api/simulacoes/${s.id}/relatorio?formato=csv" download>CSV</a></td></tr>`).join("") : "";
+        <td class="histAcoes"><a href="api/simulacoes/${s.id}/relatorio?formato=pdf" download>PDF</a><a href="api/simulacoes/${s.id}/relatorio?formato=csv" download>CSV</a><button type="button" class="histDel" data-id="${s.id}" title="Excluir esta simulação" aria-label="Excluir a simulação #${s.id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/><path d="M10 10v7"/><path d="M14 10v7"/></svg></button></td></tr>`).join("") : "";
   }catch(e){
     note.textContent = "Erro ao carregar o histórico: "+e.message;
   }
@@ -1104,7 +1209,7 @@ function geoFor(L, a){
 }
 function capFor(L, a, quad){
   const m = MODELS[current];
-  const cap = current==="TM130" ? interp(m.zones[quad].points, a) : m.capFn(L, geoFor(L,a).radius, quad);
+  const cap = capBase(L, a, geoFor(L,a).radius, quad);
   return cap * accessoryEffect().fator;
 }
 /* ângulo da lança que leva o gancho ao raio R com comprimento L (o raio cai com o ângulo) */
@@ -1121,7 +1226,7 @@ function solveAngleForRadius(L, R){
 
 function rigMasses(){
   const num = id => Number(document.getElementById(id).value)||0;
-  return num("loadLingada") + num("loadCabo") + (document.getElementById("useBalancim").checked ? num("loadBalancim") : 0) + accessoryEffect().massa;
+  return lingadaTotal() + num("loadCabo") + (document.getElementById("useBalancim").checked ? num("loadBalancim") : 0) + accessoryEffect().massa;
 }
 
 /* melhor configuração para içar o objeto: mantém a lança atual se der; senão
@@ -1147,7 +1252,9 @@ function objState(o){
   const m = MODELS[current];
   const cfg = bestConfigFor(o);
   if(cfg.W > m.capNominal) return { state:"bad", cfg, text:`${fmt(cfg.W/1000,1)} t passa da capacidade nominal do ${m.label} (${fmt(m.capNominal/1000,0)} t).` };
+  if(Math.abs(cfg.az) > m.slewMax + 1e-9) return { state:"far", cfg, text:`Fora do giro do ${m.label} (±${fmt(m.slewMax,0)}°). Reposicione o objeto.` };
   if(cfg.unreachable) return { state:"far", cfg, text:`Fora do alcance do ${m.label} (raio ${fmt(cfg.R)} m). Aproxime o objeto.` };
+  if(!isFinite(cfg.pct)) return { state:"bad", cfg, text:`Sem capacidade tabelada para este ponto (RN05): raio ${fmt(cfg.R)} m, ${quadrantFromSlew(cfg.az)==="frontal"?"setor frontal":"setor lateral/traseiro"}.` };
   const conf = `lança ${fmt(cfg.L)} m, ângulo ${fmt(cfg.a,0)}°`;
   if(cfg.pct<=80)  return { state:"ok",   cfg, text:`Pode içar: ${fmt(cfg.pct,0)}% da capacidade (${conf}).` };
   if(cfg.pct<=100) return { state:"warn", cfg, text:`Próximo do limite: ${fmt(cfg.pct,0)}% da capacidade (${conf}).` };
@@ -1278,7 +1385,7 @@ function objToApi(o){
            forma:o.forma, cor:o.cor, pernas:o.pernas, dist:+(o.dist||0).toFixed(2), linga:+(o.linga||0).toFixed(2) };
 }
 function persistObj(o, imediato){
-  if(!API.online || !API.user || !o) return;
+  if(!PERSISTIR_OBJETOS || !API.online || !API.user || !o) return;
   clearTimeout(objTimers[o.id]);
   const run = async ()=>{
     try{
@@ -1304,7 +1411,7 @@ async function loadObjectsFromServer(){
       sceneObjects = lista.map(d=>({ ...d, id: nextObjId++, dbId: d.id }));
       selectedObjId = sceneObjects[0].id;
     } else {
-      sceneObjects.forEach(o=>{ o.dbId = null; o._post = null; persistObj(o, true); }); // primeira vez: salva os exemplos
+      sceneObjects.forEach(o=>{ o.dbId = null; o._post = null; persistObj(o, true); }); // servidor sem objetos: salva os que já estão na tela
     }
     update(); refreshObjUI(true);
   }catch(e){ /* sem servidor: segue só na tela */ }
@@ -1330,15 +1437,17 @@ function onObjFieldInput(){
 ["objForma","objPernas"].forEach(id=>document.getElementById(id).addEventListener("change", ()=>{ onObjFieldInput(); refreshObjUI(true); }));
 document.getElementById("objAdd").addEventListener("click", ()=>{
   // novo objeto num ponto livre dentro do alcance atual
-  const R = Math.max(4, Math.min(geoFor(len, minAngleCur()).radius*0.7, 10));
-  const o = addObj({ nome:"Objeto "+nextObjId, R, az: (sceneObjects.length*47)%360-180 });
+  // fora do caminhão: à frente da lança (0°, ±30°, ±55°, dentro do giro de qualquer modelo); a cada 5 objetos, 3,5 m mais longe
+  const k = sceneObjects.length, AZ = [0, 30, -30, 55, -55];
+  const R = Math.max(5, Math.min(geoFor(len, minAngleCur()).radius*0.7, 10)) + 3.5*Math.floor(k/AZ.length);
+  const o = addObj({ nome:"Objeto "+nextObjId, R, az: AZ[k % AZ.length] });
   persistObj(o, true);
   selectObj(o.id); update();
 });
 document.getElementById("objDel").addEventListener("click", ()=>{
   const o = selectedObj(); if(!o) return;
   if(o.id===attachedObjId){ attachedObjId = null; document.getElementById("loadCarga").value = 0; }
-  if(o.dbId && API.user) fetch("api/objetos/"+o.dbId, {method:"DELETE"});
+  if(PERSISTIR_OBJETOS && o.dbId && API.user) fetch("api/objetos/"+o.dbId, {method:"DELETE"});
   sceneObjects = sceneObjects.filter(x=>x.id!==o.id);
   selectedObjId = sceneObjects.length ? sceneObjects[0].id : null;
   update(); refreshObjUI(true);
@@ -1425,9 +1534,21 @@ function currentWeight(){
   return o ? o.peso + rigMasses() : 0;
 }
 
-/* desenha o radar no canvas da tela ou, com opts.size, numa imagem maior
-   (com nomes dos objetos) para o relatório */
+/* raio que o radar cobre: alcance máximo da lança (com 8% de folga) ou o objeto mais distante */
+function radarRange(){
+  const m = MODELS[current];
+  const reachMax = geoFor(m.maxLen, minAngleCur()).radius;
+  const farObj = Math.max(0, ...sceneObjects.map(o=>objPolar(o).R + Math.hypot(o.C,o.L)/2));
+  return { reachMax, range: Math.max(reachMax, farObj, 5)*1.08 };
+}
+
+/* desenha o radar (vista de cima). Modos:
+   - sem opções: no canvas da tela (mini-radar, hoje escondido);
+   - opts.size: imagem maior, com nomes dos objetos, para o relatório;
+   - opts.ground: só zonas de capacidade, anéis e setor frontal, sobre fundo transparente — vira
+     a textura do chão da cena 3D, em volta do guindaste. Devolve o raio coberto (m). */
 function drawRadar(target, opts={}){
+  const ground = !!opts.ground;
   const offscreen = !!opts.size;
   const cv = target || document.getElementById("radarCanvas");
   const size = offscreen ? opts.size : cv.clientWidth; if(!size) return;
@@ -1436,11 +1557,8 @@ function drawRadar(target, opts={}){
   const ctx = cv.getContext("2d");
   ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,size,size);
   const u = offscreen ? size/190 : 1; // escala de traços e textos
-  if(offscreen){ ctx.fillStyle="#0e1114"; ctx.fillRect(0,0,size,size); }
-  const m = MODELS[current];
-  const reachMax = geoFor(m.maxLen, minAngleCur()).radius;
-  const farObj = Math.max(0, ...sceneObjects.map(o=>objPolar(o).R + Math.hypot(o.C,o.L)/2));
-  const range = Math.max(reachMax, farObj, 5)*1.08;
+  if(offscreen && !ground){ ctx.fillStyle="#0e1114"; ctx.fillRect(0,0,size,size); }
+  const { reachMax, range } = radarRange();
   const cx = size/2, cy = size/2, k = (size/2-4*u)/range;
   const P = (x,z)=>[cx+(x-SLEW_AXIS_X)*k, cy+z*k];
   if(!offscreen){
@@ -1448,7 +1566,7 @@ function drawRadar(target, opts={}){
     document.getElementById("radarRange").textContent = "máx. "+fmt(reachMax,1)+" m";
   }
 
-  ctx.beginPath(); ctx.arc(cx,cy,range*k,0,Math.PI*2); ctx.fillStyle="rgba(20,24,29,0.9)"; ctx.fill();
+  ctx.beginPath(); ctx.arc(cx,cy,range*k,0,Math.PI*2); ctx.fillStyle = ground ? "rgba(14,17,20,0.50)" : "rgba(20,24,29,0.9)"; ctx.fill();
 
   // zonas de capacidade com a lança atual (verde ≤80%, amarelo ≤100%, vermelho acima)
   const W = currentWeight();
@@ -1479,6 +1597,7 @@ function drawRadar(target, opts={}){
   ctx.setLineDash([3*u,3*u]);
   [-F,F].forEach(t=>{ ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(t)*range*k, cy+Math.sin(t)*range*k); ctx.stroke(); });
   ctx.setLineDash([]);
+  if(ground) return range;   // no 3D o caminhão, a lança e os objetos já são desenhados em 3D
 
   // caminhão
   const [tx0,tz0] = P(-4.2,-1.2), [tx1,tz1] = P(3.0,1.2);
@@ -1607,8 +1726,7 @@ async function sceneReportPayload(formato){
 async function sceneReport(formato){
   const status = document.getElementById("objStatus");
   const say = (t, cls)=>{ status.textContent = t; status.className = "objStatus "+cls; };
-  if(!API.online){ say("O relatório da cena precisa do servidor (rode o app.py).", "bad"); return; }
-  if(!API.user){ say("Entre com seu usuário para gerar o relatório da cena.", "warn"); openLogin(); return; }
+  if(!API.online){ say("O relatório da simulação precisa do servidor (rode o app.py).", "bad"); return; }
   if(!sceneObjects.length){ say("Adicione pelo menos um objeto na cena.", "warn"); return; }
   const btns = document.querySelectorAll(".reportBtns button");
   btns.forEach(b=>b.disabled = true);
@@ -1617,7 +1735,7 @@ async function sceneReport(formato){
     const r = await fetch("api/cena/relatorio", {method:"POST", headers:{"Content-Type":"application/json"},
                                                   body:JSON.stringify(await sceneReportPayload(formato))});
     if(!r.ok) throw new Error((await r.json().catch(()=>({}))).erro || ("HTTP "+r.status));
-    const nome = (r.headers.get("Content-Disposition")||"").match(/filename="?([^";]+)"?/)?.[1] || ("relatorio_cena."+formato);
+    const nome = (r.headers.get("Content-Disposition")||"").match(/filename="?([^";]+)"?/)?.[1] || ("relatorio_simulacao."+formato);
     const url = URL.createObjectURL(await r.blob());
     const a = document.createElement("a"); a.href = url; a.download = nome;
     document.body.appendChild(a); a.click(); a.remove();
@@ -1638,12 +1756,234 @@ function afterSceneUpdate(){
   refreshObjUI(false);
 }
 
-// objetos de exemplo
-addObj({ nome:"Contêiner", peso:2000, C:6, L:2.4, A:2.6, R:9, az:20, pernas:4, dist:5.4, linga:4.5 });
-addObj({ nome:"Viga metálica", peso:800, C:8, L:0.4, A:0.6, R:7, az:-60, dist:5, linga:4 });
-addObj({ nome:"Tanque", forma:"cilindro", peso:1500, C:1.8, A:2.2, R:8, az:110, pernas:1, linga:1.5 });
-selectedObjId = 1;
+// a cena começa vazia: os objetos são criados pelo botão "+ Adicionar objeto"
 
+
+/* ---------- itens da lingada (catálogo da empresa ou personalizados) ----------
+   Manilhas e cintas vêm da planilha da empresa (api/catalogo/lingada); "Personalizado" aceita qualquer
+   item com nome e massa. A massa dos itens é SOMADA ao campo "Massa da lingada". Os itens existem só
+   na página aberta, como os objetos da cena. */
+var lingadaItens = [], nextItemId = 1;
+function itensMassa(){ return lingadaItens.reduce((t,i)=>t + i.massa*i.qtd, 0); }
+function lingadaTotal(){ return (Number(document.getElementById("loadLingada").value)||0) + itensMassa(); }
+function catalogoLista(tipo){
+  const c = API.catalogo; if(!c) return [];
+  return tipo==="manilha" ? c.manilhas : tipo==="cinta_plana" ? c.cintas_planas : tipo==="cinta_tubular" ? c.cintas_tubulares : [];
+}
+function itOpcLabel(tipo, o){
+  return tipo==="manilha" ? `${o.polegadas} · ${fmt(o.cmt_t,2)} t · ${fmt(o.peso_kg,2)} kg`
+                          : `${o.cor} · ${fmt(o.capacidade_vertical_kg/1000,0)} t`;
+}
+/* item que seria adicionado agora (ou { erro } se faltar algo) */
+function itemDraft(){
+  const tipo = document.getElementById("itTipo").value;
+  const qtd = Math.max(1, Math.min(99, Math.round(Number(document.getElementById("itQtd").value)||1)));
+  if(tipo==="custom"){
+    const nome = (document.getElementById("itNome").value||"").trim() || "Item";
+    const massa = Number(document.getElementById("itMassa").value);
+    if(!isFinite(massa) || massa<0) return { erro:"Informe uma massa válida (0 ou mais)." };
+    return { nome, massa, qtd, info:"" };
+  }
+  const o = catalogoLista(tipo)[Number(document.getElementById("itOpc").value)];
+  if(!o) return { erro:"Catálogo indisponível: use o tipo Personalizado." };
+  if(tipo==="manilha")
+    return { nome:`Manilha ${o.polegadas} (${fmt(o.cmt_t,2)} t)`, massa:o.peso_kg, qtd, info:`capacidade ${fmt(o.cmt_t,2)} t` };
+  const minL = o.comprimento_min_mm/1000, L = Number(document.getElementById("itComp").value);
+  if(!isFinite(L) || L < minL) return { erro:`Comprimento mínimo desta cinta: ${fmt(minL,2)} m.` };
+  return { nome:`${tipo==="cinta_plana" ? "Cinta plana" : "Cinta tubular"} ${o.cor} ${fmt(o.capacidade_vertical_kg/1000,0)} t × ${fmt(L,1)} m`,
+           massa:o.peso_1m_kg + L*o.peso_metro_adicional_kg, qtd, info:`capacidade vertical ${fmt(o.capacidade_vertical_kg/1000,0)} t` };
+}
+function itSyncUI(rebuild){
+  const tipo = document.getElementById("itTipo").value, custom = tipo==="custom", cinta = tipo.startsWith("cinta");
+  const show = (id, on)=>{ document.getElementById(id).hidden = !on; };
+  show("itFOpc", !custom); show("itFComp", cinta); show("itFNome", custom); show("itFMassa", custom);
+  if(rebuild && !custom){
+    const sel = document.getElementById("itOpc"); sel.innerHTML = "";
+    catalogoLista(tipo).forEach((o,i)=>{ const op = document.createElement("option"); op.value = i; op.textContent = itOpcLabel(tipo,o); sel.appendChild(op); });
+    document.getElementById("itLOpc").textContent = tipo==="manilha" ? "Tamanho" : "Cor e capacidade";
+  }
+  if(cinta){                                   // comprimento mínimo depende da cinta escolhida
+    const o = catalogoLista(tipo)[Number(document.getElementById("itOpc").value)];
+    if(o) document.getElementById("itComp").min = o.comprimento_min_mm/1000;
+  }
+  const d = itemDraft(), prev = document.getElementById("itPrev");
+  prev.textContent = d.erro ? d.erro : `Massa unitária: ${fmt(d.massa,2)} kg${d.info ? " · "+d.info : ""} · ${d.qtd} × = ${fmt(d.massa*d.qtd,2)} kg`;
+}
+function renderItens(){
+  const box = document.getElementById("itLista"); box.innerHTML = "";
+  lingadaItens.forEach(i=>{
+    const row = document.createElement("div"); row.className = "item";
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = `${i.qtd} × ${i.nome}`; nm.title = nm.textContent;
+    const ms = document.createElement("span"); ms.className = "ms"; ms.textContent = `${fmt(i.massa*i.qtd,2)} kg`;
+    const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.title = "Remover";
+    x.onclick = ()=>{ lingadaItens = lingadaItens.filter(k=>k.id!==i.id); renderItens(); hideReverse(); update(); };
+    row.append(nm, ms, x); box.appendChild(row);
+  });
+  if(lingadaItens.length){
+    const t = document.createElement("div"); t.className = "total";
+    t.textContent = `Total dos itens: ${fmt(itensMassa(),2)} kg (somado à massa da lingada)`; box.appendChild(t);
+  }
+  document.getElementById("itBadge").textContent = `${fmt(itensMassa(),2)} kg`;
+}
+function itInit(){
+  const tipoSel = document.getElementById("itTipo");
+  if(!API.catalogo){                           // sem servidor: só o item personalizado
+    [...tipoSel.options].forEach(o=>{ if(o.value!=="custom") o.remove(); });
+  }
+  tipoSel.value = API.catalogo ? "manilha" : "custom";
+  itSyncUI(true); renderItens();
+}
+document.getElementById("itTipo").addEventListener("change", ()=>itSyncUI(true));
+["itOpc","itComp","itNome","itMassa","itQtd"].forEach(id=>document.getElementById(id).addEventListener("input", ()=>itSyncUI(false)));
+document.getElementById("itOpc").addEventListener("change", ()=>itSyncUI(false));
+document.getElementById("itAdd").addEventListener("click", ()=>{
+  const d = itemDraft();
+  if(d.erro){ document.getElementById("itPrev").textContent = d.erro; return; }
+  lingadaItens.push({ id: nextItemId++, nome:d.nome, massa:d.massa, qtd:d.qtd });
+  document.getElementById("itQtd").value = 1; document.getElementById("itNome").value = "";
+  renderItens(); itSyncUI(false); hideReverse(); update();
+});
+
+/* ---------- simulação salva: foto da tela, reabrir pelo link e excluir ----------
+   Ao salvar, a tela manda uma "foto" (JSON) com tudo o que o operador configurou. O link "Abrir" do histórico
+   (./?simulacao=ID) busca essa foto e a reaplica. Simulações antigas, sem foto, são reconstruídas das colunas. */
+function snapshotState(){
+  const v = id => document.getElementById(id).value, m = MODELS[current];
+  return {
+    v:1, modelo:current, len:+len.toFixed(2), angle:+angle.toFixed(2), slew,
+    carga:v("loadCarga"), lingada:v("loadLingada"), cabo:v("loadCabo"),
+    balancim:{ on:document.getElementById("useBalancim").checked, massa:v("loadBalancim") },
+    vento:v("loadVento"), terreno:v("terreno"), acessorios:accessoryEffect().ids,
+    jib:{ on:!!(m.jib && document.getElementById("useJib").checked), lance:jibLance, furo:jibPin },
+    itens:lingadaItens.map(i=>({ nome:i.nome, massa:i.massa, qtd:i.qtd })),
+    dims:{ C:v("dimC"), L:v("dimL"), A:v("dimA"), pernas:v("rigPernas"), dist:v("rigDist"), linga:v("rigLinga") }
+  };
+}
+/* reaplica uma foto na tela; confere cada valor (a foto vem do servidor, não é de confiança cega) */
+function applyState(e){
+  if(!e || !MODELS[e.modelo]) return false;
+  const m = MODELS[e.modelo], n = (x, d=0)=>{ const k = Number(x); return isFinite(k) ? k : d; };
+  const set = (id, val)=>{ document.getElementById(id).value = val; };
+  current = e.modelo; onModelChange();
+  len = Math.min(m.maxLen, Math.max(m.minLen, n(e.len, len)));
+  angle = Math.min(m.maxAngle, Math.max(m.minAngle, n(e.angle, angle)));
+  slew = Math.min(m.slewMax, Math.max(-m.slewMax, n(e.slew)));
+  set("loadCarga", Math.max(0, n(e.carga))); set("loadLingada", Math.max(0, n(e.lingada))); set("loadCabo", Math.max(0, n(e.cabo)));
+  const bal = e.balancim || {};
+  document.getElementById("useBalancim").checked = !!bal.on; set("loadBalancim", Math.max(0, n(bal.massa)));
+  set("loadVento", (e.vento==="" || e.vento==null) ? "" : Math.max(0, n(e.vento)));
+  set("terreno", ["firme","mole","nao_informado"].includes(e.terreno) ? e.terreno : "nao_informado");
+  const ids = new Set((e.acessorios || []).map(Number));
+  document.querySelectorAll("#accRow input[data-acc]").forEach(cb=>{ cb.checked = ids.has(Number(cb.dataset.acc)); });
+  const j = e.jib || {};
+  if(m.jib){
+    document.getElementById("useJib").checked = !!j.on;
+    if(m.jibLances.includes(Number(j.lance))) jibLance = Number(j.lance);
+    if(JIB_PINS.includes(Number(j.furo))) jibPin = Number(j.furo);
+  }
+  lingadaItens = (Array.isArray(e.itens) ? e.itens : []).slice(0, 50).map(i=>({
+    id:nextItemId++, nome:String(i.nome || "Item").slice(0, 60), massa:Math.max(0, n(i.massa)),
+    qtd:Math.max(1, Math.min(99, Math.round(n(i.qtd, 1)))) }));
+  const d = e.dims || {};
+  if(e.dims){
+    set("dimC", Math.max(0, n(d.C, 4))); set("dimL", Math.max(0, n(d.L, 2))); set("dimA", Math.max(0, n(d.A, 1.5)));
+    set("rigPernas", ["1","2","4"].includes(String(d.pernas)) ? String(d.pernas) : "2");
+    set("rigDist", Math.max(0, n(d.dist, 3.6))); set("rigLinga", Math.max(0, n(d.linga, 3)));
+  }
+  renderItens(); syncSliders(); hideReverse(); update();
+  return true;
+}
+/* simulação antiga (salva sem foto): reconstrói o que as colunas permitem; o giro exato não foi guardado */
+function estadoDasColunas(s){
+  const modelo = API_MODEL_KEYS[API.labels[s.guindaste_id]];
+  if(!modelo) return null;
+  const m = MODELS[modelo];
+  return { v:0, modelo, len:s.comprimento_lanca_m, angle:s.angulo_graus,
+           slew: s.quadrante==="frontal" ? 0 : Math.min(m.frontalHalf + 10, m.slewMax),
+           carga:s.peso_carga_kg, lingada:s.massa_lingada_kg, cabo:s.massa_cabo_kg,
+           balancim:{ on:s.usa_balancim, massa:s.massa_balancim_kg }, vento:s.velocidade_vento_ms==null ? "" : s.velocidade_vento_ms,
+           terreno:s.condicao_terreno, acessorios:s.acessorio_ids, jib:{ on:s.usa_jib },
+           dims: (s.comprimento_carga_m && s.largura_carga_m && s.altura_carga_m) ? { C:s.comprimento_carga_m, L:s.largura_carga_m, A:s.altura_carga_m } : null };
+}
+/* aviso no topo da simulação (a linha "Servidor:" é reescrita a cada cálculo, então não serve para isto) */
+function avisoDeAbertura(texto, erro){
+  const el = document.getElementById("restoreBanner");
+  el.textContent = texto; el.className = "restoreBanner" + (erro ? " erro" : ""); el.hidden = false;
+  clearTimeout(avisoDeAbertura.t);
+  avisoDeAbertura.t = setTimeout(()=>{ el.hidden = true; }, erro ? 15000 : 10000);
+  el.onclick = ()=>{ el.hidden = true; };
+}
+async function restoreFromUrl(){
+  const id = new URLSearchParams(location.search).get("simulacao");
+  if(!id || !/^\d+$/.test(id)) return;
+  try{
+    const r = await fetch("api/simulacoes/"+id), s = await r.json();
+    if(!r.ok) throw new Error(s.erro || ("HTTP "+r.status));
+    const aproximado = !s.estado;
+    if(!applyState(s.estado || estadoDasColunas(s))) throw new Error("modelo de guindaste desconhecido");
+    history.replaceState(null, "", location.pathname);     // o endereço volta ao normal: recarregar não desfaz o que você mexer
+    avisoDeAbertura(`Simulação #${s.id} aberta do jeito que foi salva` + (aproximado ? " (simulação antiga: o giro e as pegas foram reconstruídos de forma aproximada)." : "."), false);
+  }catch(e){
+    avisoDeAbertura(`Não foi possível abrir a simulação #${id}: ${e.message}`, true);
+  }
+}
+document.getElementById("histTable").addEventListener("click", async e=>{
+  const b = e.target.closest(".histDel"); if(!b) return;
+  const id = b.dataset.id;
+  if(!confirm(`Excluir a simulação #${id}? Os relatórios gerados dela também serão apagados.`)) return;
+  b.disabled = true;
+  try{
+    const r = await fetch("api/simulacoes/"+id, {method:"DELETE"});
+    if(!r.ok) throw new Error((await r.json().catch(()=>({}))).erro || ("HTTP "+r.status));
+    loadHistory();
+  }catch(err){
+    b.disabled = false;
+    document.getElementById("histNote").textContent = "Não foi possível excluir: "+err.message;
+  }
+});
+
+/* ---------- ajuste automático à tela (sem rolagem) ----------
+   O desenho (palco) ocupa o espaço que sobra na janela. Se o resto do conteúdo
+   não deixar pelo menos 45% da altura para ele, o tamanho do texto (--ui)
+   diminui aos poucos até tudo caber. Em celular (<=820px) a página rola. */
+var FIT_UI_CONFORTO = 1.1, FIT_UI_PISO = 1.0, FIT_STAGE_SHARE = 0.45, fitQueued = false, fitUiLast = null, fit3dKey = "";
+function fitUI(){
+  fitQueued = false;
+  const root = document.documentElement, main = document.querySelector(".main"), side = document.querySelector(".sidebar");
+  const wrap = document.querySelector(".stageWrap");
+  const simActive = document.getElementById("tab-sim").classList.contains("active");
+  root.style.removeProperty("--ui");                       // volta ao valor base do CSS
+  if(!main || !wrap || innerWidth <= 820 || !simActive){ fitUiLast = null; return; }
+  const base = parseFloat(getComputedStyle(root).getPropertyValue("--ui")) || 1;
+  const sobra   = () => main.scrollHeight > main.clientHeight || side.scrollHeight > side.clientHeight;
+  const palcoOk = () => wrap.getBoundingClientRect().height >= main.clientHeight * FIT_STAGE_SHARE;
+  let ui = base;
+  root.style.setProperty("--ui", ui);
+  /* 1) até o tamanho de conforto: tudo cabe E o desenho tem >= 45% da altura */
+  while(ui > FIT_UI_CONFORTO && (sobra() || !palcoOk())){
+    ui = +(ui - 0.05).toFixed(2); root.style.setProperty("--ui", ui);
+  }
+  /* 2) abaixo disso o texto só diminui para eliminar a rolagem, e nunca passa do piso legível */
+  while(ui > FIT_UI_PISO && sobra()){
+    ui = +(ui - 0.05).toFixed(2); root.style.setProperty("--ui", ui);
+  }
+  if(ui !== fitUiLast){ fitUiLast = ui; drawRadar(); }     // radar acompanha o tamanho do texto
+  if(viewMode === "3d"){                                   // vista 3D acompanha o tamanho do palco
+    const el = document.getElementById("stage3d"), k = el.clientWidth + "x" + el.clientHeight;
+    if(k !== fit3dKey){ fit3dKey = k; resize3D(); render3D(); }
+  }
+}
+function scheduleFit(){ if(!fitQueued){ fitQueued = true; requestAnimationFrame(fitUI); } }
+window.addEventListener("resize", scheduleFit);
+window.addEventListener("load", scheduleFit);
+if(document.fonts && document.fonts.ready) document.fonts.ready.then(scheduleFit);
+/* qualquer mudança de conteúdo (campos que aparecem, avisos, resposta do servidor) refaz o ajuste;
+   mudanças dentro do desenho 2D são ignoradas, pois não alteram o layout */
+new MutationObserver(ms=>{
+  if(ms.some(m=>!(m.target.closest && m.target.closest("#craneSvg")))) scheduleFit();
+}).observe(document.querySelector(".layout"), {subtree:true, childList:true, characterData:true,
+  attributes:true, attributeFilter:["style","class","hidden","disabled","open"]});
+document.querySelectorAll(".tabbtn").forEach(b=>b.addEventListener("click", scheduleFit));
 
 onModelChange();
 apiInit();

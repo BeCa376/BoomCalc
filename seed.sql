@@ -35,6 +35,10 @@ CREATE TABLE guindaste (
   largura_m           DECIMAL(6,2) NULL,
   altura_m            DECIMAL(6,2) NULL,
   abertura_patolas_m  DECIMAL(6,2) NULL,              -- distância entre patolas abertas
+  altura_pe_lanca_m   DECIMAL(6,2) NULL,              -- altura do pé da lança em relação ao solo
+  recuo_pe_lanca_m    DECIMAL(6,2) NULL,              -- distância do pé da lança ATRÁS do eixo de giro (radius = L·cosθ − recuo)
+  setor_frontal_graus DECIMAL(5,2) NOT NULL DEFAULT 32,   -- abertura TOTAL do setor frontal (giro de ± metade para cada lado)
+  giro_max_graus      DECIMAL(5,2) NOT NULL DEFAULT 180,  -- giro máximo para cada lado do eixo do veículo
   observacoes         TEXT NULL,
   criado_em           TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
@@ -104,6 +108,7 @@ CREATE TABLE simulacao (
   massa_balancim_kg   DECIMAL(10,2) NOT NULL DEFAULT 0,
   velocidade_vento_ms DECIMAL(5,2) NULL,
   condicao_terreno    ENUM('firme','mole','nao_informado') NOT NULL DEFAULT 'nao_informado',
+  estado_json         TEXT NULL,               -- foto da tela ao salvar (reabrir a simulação como estava)
   data_simulacao      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT chk_raio_positivo CHECK (raio_operacao_m > 0),
   FOREIGN KEY (usuario_id) REFERENCES usuario(id),
@@ -182,11 +187,15 @@ INSERT INTO usuario (nome, login, senha_hash, papel) VALUES
 -- Guindastes
 INSERT INTO guindaste
 (modelo, fabricante, capacidade_maxima_kg, comprimento_lanca_min_m, comprimento_lanca_max_m,
- angulo_min_graus, angulo_max_graus, possui_jib, comprimento_jib_m, peso_total_kg, observacoes)
+ angulo_min_graus, angulo_max_graus, possui_jib, comprimento_jib_m, peso_total_kg,
+ altura_pe_lanca_m, recuo_pe_lanca_m, setor_frontal_graus, giro_max_graus, observacoes)
 VALUES
-('TM 130', 'Grupo Luna', 26000, 5.9, 12.4, 0, 70, FALSE, NULL, 25500,
+-- Geometria e setores conforme a planilha "Informações gerais - içamento" da empresa:
+--   TM 130: pé da lança a 2,8 m do solo, sem recuo; Zona 1 = ±16° (32°), giro de até ±60° (120° no total)
+--   MD 300L: pé da lança a 3,0 m do solo, recuado 1,4 m; Figura A (frontal) = 110° (±55°), Figura B = 250°
+('TM 130', 'Grupo Luna', 26000, 5.9, 12.4, 0, 70, FALSE, NULL, 25500, 2.8, 0, 32, 60,
  'Indicado para locais de pé direito baixo. Tabela por ângulo/zona de giro.'),
-('MD 300L', 'Madal Palfinger', 30000, 10.5, 32.1, 0, 82, TRUE, 20.0, 29000,
+('MD 300L', 'Madal Palfinger', 30000, 10.5, 32.1, 0, 82, TRUE, 20.0, 29000, 3.0, 1.4, 110, 180,
  'Tabela de capacidade aproximada — validar célula a célula com catálogo oficial completo.');
 
 -- Tabela de capacidade — TM 130 (Zona I / Zona II, por ângulo)
@@ -220,4 +229,3 @@ INSERT INTO acessorio (nome, massa_kg, fator_reducao, soma_na_carga, observacoes
 ('Gancho JIB', 67, 1.000, FALSE, 'Já incluso no peso do gancho considerado na tabela da JIB'),
 ('Balancim', 0, 1.000, TRUE, 'Massa variável, informada pelo operador na simulação'),
 ('Linga têxtil', 15, 1.000, TRUE, NULL);
-

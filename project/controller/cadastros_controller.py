@@ -3,12 +3,18 @@ Cadastros do administrador: usuários, acessórios, dados do guindaste e
 pontos da tabela de capacidade. A lista de acessórios é pública (a tela de
 simulação precisa dela para o operador escolher).
 """
+import json
+import math
+import os
+
 from flask import Blueprint, jsonify, request
 from project.model import db
 from project.model.entities import Usuario, Acessorio, Guindaste, TabelaCapacidade
 from project.controller.auth_controller import admin_obrigatorio, usuario_atual
 
 bp = Blueprint("cadastros", __name__, url_prefix="/api")
+
+_CATALOGO_LINGADA = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "catalogo_lingada.json")
 
 
 def _json():
@@ -24,6 +30,8 @@ def _num(valor, campo, minimo=None, opcional=False):
         v = float(valor)
     except (TypeError, ValueError):
         raise ValueError(f"{campo}: número inválido.")
+    if not math.isfinite(v):
+        raise ValueError(f"{campo}: número inválido.")
     if minimo is not None and v < minimo:
         raise ValueError(f"{campo}: deve ser no mínimo {minimo}.")
     return v
@@ -31,6 +39,14 @@ def _num(valor, campo, minimo=None, opcional=False):
 
 def _erro(e, status=400):
     return jsonify({"erro": str(e)}), status
+
+
+# ------------------------------------------------------------------ catálogo de itens da lingada
+@bp.get("/catalogo/lingada")
+def catalogo_lingada():
+    """Manilhas e cintas da planilha da empresa, com a massa de cada uma (somam na massa da lingada)."""
+    with open(_CATALOGO_LINGADA, encoding="utf-8") as f:
+        return jsonify(json.load(f))
 
 
 # ------------------------------------------------------------------ acessórios
@@ -177,6 +193,10 @@ def editar_guindaste(gid):
         amax = _num(d.get("angulo_max_graus"), "Ângulo máximo", 0)
         jib = _num(d.get("comprimento_jib_m"), "Comprimento do JIB", 0, opcional=True)
         peso = _num(d.get("peso_total_kg"), "Peso total", 0, opcional=True)
+        altp = _num(d.get("altura_pe_lanca_m"), "Altura do pé da lança", 0, opcional=True)
+        recuo = _num(d.get("recuo_pe_lanca_m"), "Recuo do pé da lança", -50, opcional=True)
+        setor = _num(d.get("setor_frontal_graus", g.setor_frontal_graus), "Setor frontal", 1)
+        gmax = _num(d.get("giro_max_graus", g.giro_max_graus), "Giro máximo", 1)
         dims = {c: _num(d.get(c), rot, 0, opcional=True) for c, rot in (
             ("comprimento_m", "Comprimento"), ("largura_m", "Largura"), ("altura_m", "Altura"),
             ("abertura_patolas_m", "Abertura das patolas"))}
@@ -186,11 +206,15 @@ def editar_guindaste(gid):
         return _erro("A lança mínima deve ser menor que a máxima.")
     if amin >= amax or amax > 90:
         return _erro("Ângulos inválidos (mínimo < máximo ≤ 90°).")
+    if setor > 360 or gmax > 180:
+        return _erro("Setor frontal deve ser de até 360° e o giro máximo de até 180° para cada lado.")
     g.capacidade_maxima_kg, g.comprimento_lanca_min_m, g.comprimento_lanca_max_m = cap, cmin, cmax
     g.angulo_min_graus, g.angulo_max_graus = amin, amax
     g.possui_jib = bool(d.get("possui_jib"))
     g.comprimento_jib_m = jib if g.possui_jib else None
     g.peso_total_kg = peso
+    g.altura_pe_lanca_m, g.recuo_pe_lanca_m = altp, recuo
+    g.setor_frontal_graus, g.giro_max_graus = setor, gmax
     for c, v in dims.items():
         setattr(g, c, v)
     g.observacoes = d.get("observacoes") or None

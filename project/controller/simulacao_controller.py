@@ -1,3 +1,5 @@
+import json
+import math
 from datetime import datetime
 
 from flask import Blueprint, jsonify, request, current_app
@@ -38,16 +40,17 @@ def _linhas_mais_proximas(guindaste_id, quadrante, comprimento_lanca):
     ]
 
 
-def _fora_dos_limites(guindaste, dados):
-    """Comprimento de lança e ângulo precisam estar dentro do que o modelo permite."""
-    comp = float(dados["comprimento_lanca_m"])
-    ang = float(dados["angulo_graus"])
+def _fora_dos_limites(guindaste, comp, ang, giro=0.0):
+    """Comprimento de lança, ângulo e giro precisam estar dentro do que o modelo permite."""
     cmin, cmax = float(guindaste.comprimento_lanca_min_m), float(guindaste.comprimento_lanca_max_m)
     amin, amax = float(guindaste.angulo_min_graus), float(guindaste.angulo_max_graus)
     if not cmin <= comp <= cmax:
         return f"RN06: comprimento de lança {comp} m fora do limite do {guindaste.modelo} ({cmin}–{cmax} m)."
     if not amin <= ang <= amax:
         return f"RN06: ângulo {ang}° fora do limite do {guindaste.modelo} ({amin}–{amax}°)."
+    gmax = float(guindaste.giro_max_graus if guindaste.giro_max_graus is not None else 180)
+    if abs(giro) > gmax:
+        return f"RN06: giro de {giro:g}° fora do limite do {guindaste.modelo} (±{gmax:g}°)."
     return None
 
 
@@ -55,11 +58,56 @@ class ErroSimulacao(ValueError):
     """Dado inválido para simular (vira HTTP 400)."""
 
 
+def _num(dados, campo, rotulo, minimo=None, maximo=None, padrao=None, positivo=False):
+    """Lê um número do JSON com validação: converte, recusa NaN/infinito/texto e confere limites.
+    Dado inválido vira ErroSimulacao (HTTP 400) em vez de erro 500."""
+    v = dados.get(campo)
+    if v in (None, ""):
+        if padrao is None:
+            raise ErroSimulacao(f"RN03: campos obrigatórios ausentes: {campo}")
+        return padrao
+    if isinstance(v, bool):
+        raise ErroSimulacao(f"{rotulo}: número inválido.")
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        raise ErroSimulacao(f"{rotulo}: número inválido.")
+    if not math.isfinite(v):
+        raise ErroSimulacao(f"{rotulo}: número inválido.")
+    if positivo and v <= 0:
+        raise ErroSimulacao(f"{rotulo}: deve ser maior que zero.")
+    if minimo is not None and v < minimo:
+        raise ErroSimulacao(f"{rotulo}: não pode ser menor que {minimo:g}.")
+    if maximo is not None and v > maximo:
+        raise ErroSimulacao(f"{rotulo}: não pode ser maior que {maximo:g}.")
+    return v
+
+
+def _inteiros(valor, rotulo):
+    """Lista de ids inteiros (ou vazia)."""
+    if valor in (None, ""):
+        return []
+    if not isinstance(valor, (list, tuple)):
+        raise ErroSimulacao(f"{rotulo}: deve ser uma lista de números.")
+    try:
+        return [int(i) for i in valor if not isinstance(i, bool)]
+    except (TypeError, ValueError):
+        raise ErroSimulacao(f"{rotulo}: deve ser uma lista de números.")
+
+
+def _booleano(v):
+    if isinstance(v, str):
+        return v.strip().lower() in ("1", "true", "sim", "on")
+    return bool(v)
+
+
 def avaliar(dados):
     """
     Núcleo da simulação (RN01–RN08), usado por /api/simular e pelo relatório da cena.
     Devolve (guindaste, avaliacao, acessorios, terreno); dado inválido -> ErroSimulacao.
     """
+    if not isinstance(dados, dict):
+        raise ErroSimulacao("Corpo da requisição inválido: envie um objeto JSON.")
     faltando = validar_campos_obrigatorios(
         dados, ["guindaste_id", "comprimento_lanca_m", "angulo_graus",
                 "raio_operacao_m", "peso_carga_kg"]
@@ -67,19 +115,32 @@ def avaliar(dados):
     if faltando:
         raise ErroSimulacao(f"RN03: campos obrigatórios ausentes: {', '.join(faltando)}")
 
-    guindaste = db.get_or_404(Guindaste, dados["guindaste_id"])
-    erro_limite = _fora_dos_limites(guindaste, dados)
+    # --- validação de tipos e limites (nada de texto, NaN, infinito ou massa negativa) ---
+    gid = _num(dados, "guindaste_id", "Guindaste")
+    comp = _num(dados, "comprimento_lanca_m", "Comprimento da lança", positivo=True)
+    ang = _num(dados, "angulo_graus", "Ângulo", minimo=0, maximo=90)
+    raio = _num(dados, "raio_operacao_m", "RN02: raio de operação", positivo=True)
+    peso = _num(dados, "peso_carga_kg", "Peso da carga")
+    lingada = _num(dados, "massa_lingada_kg", "Massa da lingada", minimo=0, padrao=0.0)
+    cabo = _num(dados, "massa_cabo_kg", "Massa do cabo de aço", minimo=0, padrao=0.0)
+    balancim = _num(dados, "massa_balancim_kg", "Massa do balancim", minimo=0, padrao=0.0)
+    vento = _num(dados, "velocidade_vento_ms", "Velocidade do vento", minimo=0, padrao=-1.0)
+    vento = None if vento < 0 else vento
+    giro = _num(dados, "angulo_giro_graus", "Ângulo de giro", minimo=-360, maximo=360, padrao=0.0)
+    ids = _inteiros(dados.get("acessorio_ids"), "Acessórios")
+
+    guindaste = db.session.get(Guindaste, int(gid))
+    if guindaste is None:
+        raise ErroSimulacao("Guindaste não encontrado.")
+    erro_limite = _fora_dos_limites(guindaste, comp, ang, giro)
     if erro_limite:
         raise ErroSimulacao(erro_limite)
-    quadrante = quadrante_por_giro(dados.get("angulo_giro_graus", 0))
-    linhas = _linhas_mais_proximas(dados["guindaste_id"], quadrante, dados["comprimento_lanca_m"])
-    capacidade_tabela = capacidade_disponivel(
-        linhas, angulo=dados.get("angulo_graus"), raio=dados.get("raio_operacao_m")
-    )
+    quadrante = quadrante_por_giro(giro, guindaste.setor_frontal_graus)
+    linhas = _linhas_mais_proximas(guindaste.id, quadrante, comp)
+    capacidade_tabela = capacidade_disponivel(linhas, angulo=ang, raio=raio)
 
     # RN07: acessórios somam massa (quando não estão já inclusos na tabela)
     # e podem reduzir a capacidade pelo fator de redução.
-    ids = [int(i) for i in (dados.get("acessorio_ids") or [])]
     acessorios = Acessorio.query.filter(Acessorio.id.in_(ids)).all() if ids else []
     massa_acessorios = sum(float(a.massa_kg or 0) for a in acessorios if a.soma_na_carga)
     fator = 1.0
@@ -94,12 +155,12 @@ def avaliar(dados):
     avaliacao = avaliar_operacao(
         capacidade_kg=capacidade,
         massa_acessorios=massa_acessorios,
-        peso_carga=dados.get("peso_carga_kg"),
-        massa_lingada=dados.get("massa_lingada_kg", 0),
-        massa_cabo=dados.get("massa_cabo_kg", 0),
-        usa_balancim=dados.get("usa_balancim", False),
-        massa_balancim=dados.get("massa_balancim_kg", 0),
-        velocidade_vento=dados.get("velocidade_vento_ms"),
+        peso_carga=peso,
+        massa_lingada=lingada,
+        massa_cabo=cabo,
+        usa_balancim=_booleano(dados.get("usa_balancim", False)),
+        massa_balancim=balancim,
+        velocidade_vento=vento,
         limite_vento_ms=current_app.config.get("LIMITE_VENTO_MS", 12.5),
         limite_percentual_alerta=current_app.config.get("LIMITE_PERCENTUAL_ALERTA", 80),
         capacidade_nominal_kg=float(guindaste.capacidade_maxima_kg),
@@ -128,7 +189,7 @@ def simular():
     acessorio_ids[], condicao_terreno (firme|mole|nao_informado), salvar (bool).
     Para salvar é preciso estar logado (a simulação vai para o usuário da sessão).
     """
-    dados = request.get_json(force=True)
+    dados = request.get_json(silent=True)
     try:
         guindaste, avaliacao, acessorios, terreno = avaliar(dados)
     except ErroSimulacao as e:
@@ -143,6 +204,14 @@ def simular():
             return jsonify({"erro": "RN01: informe o peso da carga para salvar."}), 400
         if float(dados["raio_operacao_m"]) <= 0:
             return jsonify({"erro": "RN02: o raio de operação deve ser maior que zero."}), 400
+        estado_json = None
+        estado = dados.get("estado")
+        if estado is not None:
+            if not isinstance(estado, dict):
+                return jsonify({"erro": "Estado da simulação inválido."}), 400
+            estado_json = json.dumps(estado, ensure_ascii=False, separators=(",", ":"))
+            if len(estado_json) > 20000:
+                return jsonify({"erro": "Estado da simulação grande demais."}), 400
         carga = Carga(
             peso_kg=dados["peso_carga_kg"],
             descricao=dados.get("descricao_carga"),
@@ -168,6 +237,7 @@ def simular():
             massa_balancim_kg=dados.get("massa_balancim_kg", 0),
             velocidade_vento_ms=dados.get("velocidade_vento_ms"),
             condicao_terreno=terreno,
+            estado_json=estado_json,
             # hora local do servidor (o padrão do banco é UTC no SQLite e local no MySQL)
             data_simulacao=datetime.now(),
         )
@@ -194,12 +264,24 @@ def simular():
 @bp.post("/simular/alcance-maximo")
 def alcance_maximo():
     """Cálculo reverso: dado um peso, acha o ponto de maior alcance seguro."""
-    dados = request.get_json(force=True)
-    quadrante = quadrante_por_giro(dados.get("angulo_giro_graus", 0))
-    linhas = _linhas_mais_proximas(
-        dados["guindaste_id"], quadrante, dados["comprimento_lanca_m"]
-    )
-    peso = dados["peso_kg"]
+    dados = request.get_json(silent=True)
+    try:
+        if not isinstance(dados, dict):
+            raise ErroSimulacao("Corpo da requisição inválido: envie um objeto JSON.")
+        gid = int(_num(dados, "guindaste_id", "Guindaste"))
+        comp = _num(dados, "comprimento_lanca_m", "Comprimento da lança", positivo=True)
+        peso = _num(dados, "peso_kg", "Peso", positivo=True)
+        giro = _num(dados, "angulo_giro_graus", "Ângulo de giro", minimo=-360, maximo=360, padrao=0.0)
+    except ErroSimulacao as e:
+        return jsonify({"erro": str(e)}), 400
+    guindaste = db.session.get(Guindaste, gid)
+    if guindaste is None:
+        return jsonify({"erro": "Guindaste não encontrado."}), 400
+    erro_giro = _fora_dos_limites(guindaste, comp, 0, giro)
+    if erro_giro:
+        return jsonify({"erro": erro_giro}), 400
+    quadrante = quadrante_por_giro(giro, guindaste.setor_frontal_graus)
+    linhas = _linhas_mais_proximas(gid, quadrante, comp)
 
     candidatos = [l for l in linhas if l["capacidade_kg"] >= peso]
     if not candidatos:

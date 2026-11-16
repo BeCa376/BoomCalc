@@ -1,4 +1,5 @@
 """Objetos da cena 3D, salvos por usuário."""
+import math
 import re
 
 from flask import Blueprint, jsonify, request
@@ -44,6 +45,8 @@ def _preencher(o, d):
         try:
             v = float(d[chave])
         except (TypeError, ValueError):
+            raise ValueError(f"{chave}: número inválido.")
+        if not math.isfinite(v):
             raise ValueError(f"{chave}: número inválido.")
         if chave in LIMITES and v < LIMITES[chave]:
             raise ValueError(f"{chave}: deve ser no mínimo {LIMITES[chave]}.")

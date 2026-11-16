@@ -46,6 +46,11 @@ class Guindaste(db.Model):
     largura_m = db.Column(db.Numeric(6, 2), nullable=True)
     altura_m = db.Column(db.Numeric(6, 2), nullable=True)
     abertura_patolas_m = db.Column(db.Numeric(6, 2), nullable=True)
+    # geometria de operação (planilha da empresa): o raio é medido a partir do eixo de giro
+    altura_pe_lanca_m = db.Column(db.Numeric(6, 2), nullable=True)   # altura do pé da lança em relação ao solo
+    recuo_pe_lanca_m = db.Column(db.Numeric(6, 2), nullable=True)    # distância do pé da lança ATRÁS do eixo de giro
+    setor_frontal_graus = db.Column(db.Numeric(5, 2), nullable=False, default=32)   # abertura total do setor frontal
+    giro_max_graus = db.Column(db.Numeric(5, 2), nullable=False, default=180)       # giro máximo p/ cada lado do eixo
     observacoes = db.Column(db.Text, nullable=True)
     criado_em = db.Column(db.TIMESTAMP, server_default=db.func.now())
 
@@ -67,6 +72,10 @@ class Guindaste(db.Model):
             "comprimento_jib_m": float(self.comprimento_jib_m) if self.comprimento_jib_m else None,
             "peso_total_kg": float(self.peso_total_kg) if self.peso_total_kg else None,
             **{c: (float(getattr(self, c)) if getattr(self, c) is not None else None) for c in self.DIMENSOES},
+            "altura_pe_lanca_m": float(self.altura_pe_lanca_m) if self.altura_pe_lanca_m is not None else None,
+            "recuo_pe_lanca_m": float(self.recuo_pe_lanca_m) if self.recuo_pe_lanca_m is not None else None,
+            "setor_frontal_graus": float(self.setor_frontal_graus if self.setor_frontal_graus is not None else 32),
+            "giro_max_graus": float(self.giro_max_graus if self.giro_max_graus is not None else 180),
             "observacoes": self.observacoes,
         }
 
@@ -152,6 +161,8 @@ class Simulacao(db.Model):
     condicao_terreno = db.Column(
         db.Enum("firme", "mole", "nao_informado"), default="nao_informado"
     )
+    # foto completa da tela no momento de salvar (JSON): é o que permite reabrir a simulação do jeito que estava
+    estado_json = db.Column(db.Text, nullable=True)
     data_simulacao = db.Column(db.TIMESTAMP, server_default=db.func.now())
 
     acessorios = db.relationship("Acessorio", secondary=simulacao_acessorio, lazy="subquery")
@@ -224,4 +235,3 @@ class ObjetoCena(db.Model):
             else:
                 d[chave] = float(v) if v is not None else 0.0
         return d
-

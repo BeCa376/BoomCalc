@@ -8,9 +8,10 @@ das funções utilitárias genéricas de `project/functions`.
 from project.functions import utils
 
 
-def quadrante_por_giro(angulo_giro_graus):
-    """Giro de até 16° para qualquer lado = área frontal; além disso = lateral/traseira."""
-    return "frontal" if abs(angulo_giro_graus or 0) <= 16 else "lateral_traseira"
+def quadrante_por_giro(angulo_giro_graus, setor_frontal_graus=32):
+    """Dentro de metade do setor frontal para cada lado do eixo = frontal; além disso = lateral/traseira.
+    O setor é de cada modelo: TM 130 = 32° (±16°); MD 300L = 110° (±55°) — planilha da empresa."""
+    return "frontal" if abs(angulo_giro_graus or 0) <= float(setor_frontal_graus) / 2 else "lateral_traseira"
 
 
 def capacidade_disponivel(linhas_tabela, angulo=None, raio=None):

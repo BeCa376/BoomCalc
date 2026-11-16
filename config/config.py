@@ -1,4 +1,5 @@
 import os
+from urllib.parse import quote_plus
 from config.env import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD, CRYPTO_KEY
 
 
@@ -9,7 +10,7 @@ class Config:
 
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL",
-        f"mysql+pymysql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+        f"mysql+pymysql://{quote_plus(DB_USER)}:{quote_plus(DB_PASSWORD)}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SECRET_KEY = CRYPTO_KEY or os.environ.get("SECRET_KEY", "troque-esta-chave-em-producao")
@@ -17,6 +18,11 @@ class Config:
     # Regras de negócio configuráveis (RN08 etc.)
     LIMITE_VENTO_MS = float(os.environ.get("LIMITE_VENTO_MS", 12.5))
     LIMITE_PERCENTUAL_ALERTA = 80  # a partir daqui, status = "proximo_limite"
+
+    # Login (trabalho futuro): desligado no protótipo. Com False não há tela de login e tudo
+    # (salvar, histórico, objetos, relatórios, /admin) funciona com um usuário padrão.
+    # Para ligar: AUTENTICACAO_ATIVA=1 no config/.env (o código de login e permissões já existe).
+    AUTENTICACAO_ATIVA = os.environ.get("AUTENTICACAO_ATIVA", "0").strip().lower() in ("1", "true", "sim")
 
     # Sessão (login): cookie assinado, inacessível ao JavaScript
     SESSION_COOKIE_HTTPONLY = True

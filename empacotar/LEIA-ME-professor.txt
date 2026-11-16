@@ -1,0 +1,28 @@
+﻿BOOMCALC - SIMULADOR DE IÇAMENTO
+================================
+
+COMO USAR
+  1. Abra o BoomCalc pelo Menu Iniciar (ou pelo atalho da área de trabalho).
+  2. Abre uma janela preta: ela é o programa rodando. NÃO feche enquanto estiver usando.
+  3. O navegador abre sozinho na tela do simulador. Se não abrir, copie o endereço que
+     aparece na janela preta (algo como http://127.0.0.1:5000/) e cole no navegador.
+  4. Para ENCERRAR, feche a janela preta.
+
+ONDE FICAM AS SIMULAÇÕES SALVAS
+  Tudo fica NESTE computador, numa pasta só sua:
+      %LOCALAPPDATA%\BoomCalc        (Windows: cole isso na barra do Explorador de Arquivos)
+  O programa só é acessível por este computador: não usa a internet e ninguém na rede enxerga.
+  Não precisa instalar banco de dados nem nada além do BoomCalc.
+
+AVISO DO WINDOWS NA PRIMEIRA VEZ
+  Como o programa não tem assinatura digital paga, o Windows pode mostrar "O Windows protegeu
+  seu computador". Clique em "Mais informações" e depois em "Executar assim mesmo".
+
+COMO DESINSTALAR
+  Configurações > Aplicativos > Aplicativos instalados > BoomCalc > Desinstalar.
+  (ou Menu Iniciar > BoomCalc > Desinstalar o BoomCalc)
+  No final ele pergunta se você também quer apagar as simulações salvas.
+  Respondendo "Sim", não sobra nada do BoomCalc no computador.
+
+Este simulador é uma ferramenta de apoio à decisão: não substitui a avaliação técnica nem o
+cumprimento das normas aplicáveis.

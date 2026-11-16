@@ -1,11 +1,13 @@
 """
-RF11 — relatório de uma simulação salva, em PDF ou CSV.
+RF11 — relatório de uma simulação salva, em PDF ou CSV, e gestão da simulação salva.
 
-GET /api/simulacoes/<id>/relatorio?formato=pdf|csv
-Gera o arquivo, registra na tabela `relatorio` e devolve para download.
+GET    /api/simulacoes/<id>/relatorio?formato=pdf|csv   gera o arquivo, registra e devolve para download
+GET    /api/simulacoes/<id>                             dados da simulação + "estado" para reabri-la como estava
+DELETE /api/simulacoes/<id>                             exclui a simulação, o resultado e os relatórios gerados
 """
 import csv
 import io
+import json
 import os
 from datetime import datetime
 
@@ -13,7 +15,7 @@ from flask import Blueprint, jsonify, request, send_file, current_app
 from fpdf import FPDF
 
 from project.model import db
-from project.model.entities import Simulacao, Relatorio
+from project.model.entities import Simulacao, Relatorio, Resultado, Carga
 from project.controller.auth_controller import login_obrigatorio, usuario_atual
 from project.functions.utils import formatar_kg
 
@@ -143,4 +145,83 @@ def relatorio(sim_id):
     db.session.commit()
 
     return send_file(io.BytesIO(conteudo), as_attachment=True, download_name=nome,
-                     mimetype="application/pdf" if formato == "pdf" else "text/csv; charset=utf-8")
+                     mimetype="application/pdf" if formato == "pdf" else "text/csv")
+
+
+def _da_pessoa(s):
+    """A simulação precisa ser do usuário logado (administrador vê e exclui as de todos)."""
+    eu = usuario_atual()
+    if s.usuario_id != eu.id and not eu.is_admin:
+        return jsonify({"erro": "Essa simulação é de outro usuário."}), 403
+    return None
+
+
+@bp.get("/<int:sim_id>")
+@login_obrigatorio
+def detalhe(sim_id):
+    """Tudo o que a tela precisa para reabrir a simulação. `estado` é a foto completa feita ao salvar
+    (None nas simulações antigas: a tela reconstrói o que for possível a partir das colunas)."""
+    s = db.get_or_404(Simulacao, sim_id)
+    negado = _da_pessoa(s)
+    if negado:
+        return negado
+    estado = None
+    if s.estado_json:
+        try:
+            estado = json.loads(s.estado_json)
+        except ValueError:
+            estado = None
+    f = lambda v: float(v) if v is not None else None
+    c = s.carga
+    return jsonify({
+        "id": s.id, "guindaste_id": s.guindaste_id,
+        "comprimento_lanca_m": f(s.comprimento_lanca_m), "angulo_graus": f(s.angulo_graus),
+        "raio_operacao_m": f(s.raio_operacao_m), "quadrante": s.quadrante, "usa_jib": bool(s.usa_jib),
+        "peso_carga_kg": f(c.peso_kg) if c else None,
+        "comprimento_carga_m": f(c.comprimento_m) if c else None,
+        "largura_carga_m": f(c.largura_m) if c else None, "altura_carga_m": f(c.altura_m) if c else None,
+        "massa_lingada_kg": f(s.massa_lingada_kg), "massa_cabo_kg": f(s.massa_cabo_kg),
+        "usa_balancim": bool(s.usa_balancim), "massa_balancim_kg": f(s.massa_balancim_kg),
+        "velocidade_vento_ms": f(s.velocidade_vento_ms), "condicao_terreno": s.condicao_terreno,
+        "acessorio_ids": [a.id for a in s.acessorios],
+        "data_simulacao": s.data_simulacao.isoformat() if s.data_simulacao else None,
+        "estado": estado,
+    })
+
+
+@bp.delete("/<int:sim_id>")
+@login_obrigatorio
+def excluir(sim_id):
+    """Exclui a simulação com o resultado, os acessórios ligados, a carga e os relatórios que gerou
+    (inclusive os arquivos em disco)."""
+    s = db.get_or_404(Simulacao, sim_id)
+    negado = _da_pessoa(s)
+    if negado:
+        return negado
+    arquivos = []
+    for r in Relatorio.query.filter_by(simulacao_id=s.id).all():
+        if r.caminho_arquivo:
+            arquivos.append(r.caminho_arquivo)
+        db.session.delete(r)
+    if s.resultado:
+        db.session.delete(s.resultado)
+    s.acessorios = []
+    carga_id = s.carga_id
+    db.session.flush()
+    db.session.delete(s)
+    db.session.flush()
+    if not Simulacao.query.filter_by(carga_id=carga_id).first():     # carga que não é de mais ninguém
+        carga = db.session.get(Carga, carga_id)
+        if carga:
+            db.session.delete(carga)
+    db.session.commit()
+    # só apaga arquivos que estão mesmo dentro da pasta de relatórios
+    pasta = os.path.realpath(current_app.config["RELATORIOS_DIR"])
+    for caminho in arquivos:
+        real = os.path.realpath(caminho)
+        if real.startswith(pasta + os.sep) and os.path.isfile(real):
+            try:
+                os.remove(real)
+            except OSError:
+                pass
+    return jsonify({"ok": True, "id": sim_id})

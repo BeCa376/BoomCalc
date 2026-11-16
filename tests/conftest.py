@@ -18,7 +18,7 @@ SEED = os.path.join(RAIZ, "seed.sql")
 
 def inserts_do_seed():
     sql = open(SEED, encoding="utf8").read()
-    for st in re.findall(r"(INSERT INTO.*?;)\s*\n", sql, re.S):
+    for st in re.findall(r"(INSERT INTO.*?;)\s*(?:\n|\Z)", sql, re.S):   # aceita o arquivo sem quebra de linha no fim
         yield st.replace("FALSE", "0").replace("TRUE", "1")
 
 
@@ -32,6 +32,7 @@ def app(tmp_path):
         "SQLALCHEMY_ENGINE_OPTIONS": {"connect_args": {"check_same_thread": False}, "poolclass": StaticPool},
         "RELATORIOS_DIR": str(tmp_path / "relatorios"),
         "SECRET_KEY": "teste",
+        "AUTENTICACAO_ATIVA": True,   # a suíte principal testa login e permissões
     })
     with app.app_context():
         db.create_all()

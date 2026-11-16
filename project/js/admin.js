@@ -33,7 +33,9 @@ function fillForm(form, obj){
 async function start(){
   EU = await api("api/auth/me").catch(()=>null);
   const box = $("#userBox");
-  if(EU){
+  if(EU && EU.autenticacao===false){
+    box.innerHTML = `<a href="./">Simulador</a>`;   // login desligado: sem Sair
+  } else if(EU){
     box.innerHTML = `<b>${esc(EU.nome)}</b> · <a href="./">Simulador</a> · <button id="sair">Sair</button>`;
     $("#sair").onclick = async ()=>{ await fetch("api/auth/logout",{method:"POST"}); location.reload(); };
   } else box.innerHTML = `<a href="./">Simulador</a>`;

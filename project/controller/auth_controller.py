@@ -9,15 +9,34 @@ Papéis:
 A simulação em si (POST /api/simular sem salvar) continua aberta, para a
 tela funcionar sem login; salvar, histórico, objetos e relatórios exigem login.
 """
+import secrets
 from functools import wraps
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, current_app, jsonify, request, session
 from project.model import db
 from project.model.entities import Usuario
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 
+def autenticacao_ativa():
+    return bool(current_app.config.get("AUTENTICACAO_ATIVA", False))
+
+
+def _usuario_padrao():
+    """Usuário usado enquanto o login está desligado: o primeiro administrador."""
+    u = (Usuario.query.filter_by(papel="administrador").order_by(Usuario.id).first()
+         or Usuario.query.order_by(Usuario.id).first())
+    if u is None:
+        u = Usuario(nome="Usuário padrão", login="padrao", papel="administrador")
+        u.definir_senha(secrets.token_urlsafe(16))
+        db.session.add(u)
+        db.session.commit()
+    return u
+
+
 def usuario_atual():
+    if not autenticacao_ativa():
+        return _usuario_padrao()
     uid = session.get("usuario_id")
     return db.session.get(Usuario, uid) if uid else None
 
@@ -65,4 +84,7 @@ def logout():
 @bp.get("/me")
 def me():
     u = usuario_atual()
-    return jsonify(u.to_dict() if u else None)
+    d = u.to_dict() if u else None
+    if d is not None and not autenticacao_ativa():
+        d["autenticacao"] = False   # a tela esconde "Entrar/Sair" quando o login está desligado
+    return jsonify(d)
